@@ -1,0 +1,62 @@
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+
+const UPLOAD_DIR = "public/uploads";
+const MAX_FILE_SIZE_MB = 50;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+const ALLOWED_EXTENSIONS = [".json", ".csv", ".txt", ".pdf", ".docx", ".xlsx"];
+const ALLOWED_MIMETYPES = [
+    "application/json",
+    "text/plain",
+    "text/csv",
+    "application/csv",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "application/octet-stream", // some browsers send this for .docx/.xlsx
+];
+
+// Ensure upload dir exists
+if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => {
+        cb(null, UPLOAD_DIR);
+    },
+    filename: (_req, file, cb) => {
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+        const uniqueName = `${Date.now()}-${safeName}`;
+        cb(null, uniqueName);
+    },
+});
+
+const fileFilter = (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const mimeOk = ALLOWED_MIMETYPES.includes(file.mimetype);
+    const extOk  = ALLOWED_EXTENSIONS.includes(ext);
+
+    if (extOk || mimeOk) {
+        cb(null, true);
+    } else {
+        cb(
+            new Error(
+                `File type not supported: "${ext}". Allowed: ${ALLOWED_EXTENSIONS.join(", ")}`
+            ),
+            false
+        );
+    }
+};
+
+export const upload = multer({
+    storage,
+    fileFilter,
+    limits: {
+        fileSize: MAX_FILE_SIZE_BYTES,
+        files: 1,
+    },
+});

@@ -8,13 +8,14 @@ import { toast } from "sonner";
 import { server } from "@/constants";
 import axios from "axios";
 import { GoogleLogin } from "@react-oauth/google";
-import { userExists } from "@/redux/reducers/auth";
 import { useDispatch } from "react-redux";
+import { userExists } from "@/redux/reducers/auth";
 
-export default function SignIn() {
+export default function SignUp() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
 
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -31,28 +32,27 @@ export default function SignIn() {
     setLoading(true);
     try {
       const { data } = await axios.post(
-        `${server}/api/v1/user/login`,
-        { email, password },
+        `${server}/api/v1/user/register`,
+        { fullname: name, email, password },
         { withCredentials: true }
       );
 
       if (data.success) {
-        saveSession(data.data.accessToken, data.data.refreshToken, data.data.user);
-        toast.success(data.message || "Welcome back!");
+        toast.success(data.message || "Account created");
 
-        if (data?.data?.user) {
-          dispatch(userExists(data?.data?.user));
+        if (data?.data) {
+          dispatch(userExists(data?.data));
         }
 
         navigate("/dashboard");
       } else {
-        toast.error(data.message || "Sign in failed");
+        toast.error(data.message || "Sign up failed");
       }
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        toast.error(err.response?.data?.message || "Sign in failed");
+        toast.error(err.response?.data?.message || "Sign up failed");
       } else {
-        toast.error(err instanceof Error ? err.message : "Sign in failed");
+        toast.error(err instanceof Error ? err.message : "Sign up failed");
       }
     } finally {
       setLoading(false);
@@ -75,12 +75,26 @@ export default function SignIn() {
         </Link>
 
         <div className="glass-strong rounded-2xl p-8">
-          <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Create your account</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sign in to continue to your privacy pipeline.
+            Start your privacy pipeline in seconds.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <div>
+              <Label htmlFor="name" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                Name
+              </Label>
+              <Input
+                id="name"
+                required
+                autoComplete="name"
+                placeholder="Ada Lovelace"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="mt-1.5 bg-muted/40 border-border/60"
+              />
+            </div>
             <div>
               <Label htmlFor="email" className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
                 Email
@@ -88,9 +102,9 @@ export default function SignIn() {
               <Input
                 id="email"
                 type="email"
-                placeholder="alex@company.com"
                 required
                 autoComplete="email"
+                placeholder="alex@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="mt-1.5 bg-muted/40 border-border/60"
@@ -103,9 +117,10 @@ export default function SignIn() {
               <Input
                 id="password"
                 type="password"
-                placeholder="••••••••"
                 required
-                autoComplete="current-password"
+                minLength={6}
+                autoComplete="new-password"
+                placeholder="At least 6 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="mt-1.5 bg-muted/40 border-border/60"
@@ -116,7 +131,7 @@ export default function SignIn() {
               className="w-full bg-gradient-primary text-primary-foreground btn-glow shadow-glow-primary"
               disabled={loading}
             >
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sign in"}
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Create account"}
             </Button>
           </form>
 
@@ -144,7 +159,7 @@ export default function SignIn() {
                       fullname: data.user.fullname,
                       email: data.user.email,
                     });
-                    toast.success(data.message || "Google login successful!");
+                    toast.success(data.message || "Google sign up successful!");
 
                     if (data?.user) {
                       dispatch(userExists(data?.user));
@@ -152,13 +167,13 @@ export default function SignIn() {
 
                     navigate("/dashboard");
                   } else {
-                    toast.error(data.message || "Google login failed");
+                    toast.error(data.message || "Google sign up failed");
                   }
                 } catch (err) {
                   if (axios.isAxiosError(err)) {
-                    toast.error(err.response?.data?.message || "Google login failed");
+                    toast.error(err.response?.data?.message || "Google sign up failed");
                   } else {
-                    toast.error("Google login failed");
+                    toast.error("Google sign up failed");
                   }
                 } finally {
                   setGoogleLoading(false);
@@ -168,7 +183,7 @@ export default function SignIn() {
                 toast.error("Google sign-in was cancelled or failed");
                 setGoogleLoading(false);
               }}
-              text="signin_with"
+              text="signup_with"
               theme="outline"
               shape="pill"
               width="100%"
@@ -176,9 +191,9 @@ export default function SignIn() {
           </div>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            Don't have an account?{" "}
-            <Link to="/signup" className="text-primary hover:underline">
-              Sign up
+            Already have an account?{" "}
+            <Link to="/signin" className="text-primary hover:underline">
+              Sign in
             </Link>
           </p>
         </div>
