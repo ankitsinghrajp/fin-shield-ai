@@ -1,0 +1,23 @@
+{
+  "name": "hackathon-server",
+  "version": "1.0.0",
+  "description": "Hackathon server created by Ankit Singh Rajput",
+  "license": "ISC",
+  "author": "Ankit Singh Rajput",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "google-auth-library": "^10.6.2",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.5.0"
+  }
+}
