@@ -56,7 +56,7 @@ export default function Landing() {
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <Button asChild size="lg" className="bg-gradient-primary text-primary-foreground btn-glow shadow-glow-primary">
-                <Link to="/dashboard">
+                <Link to="/process">
                   Start Processing <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>

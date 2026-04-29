@@ -1,5 +1,5 @@
 /**
- * Data Masking Engine — v9 (unchanged, works correctly)
+ * Data Masking Engine — v9.2 (fixed phone masking, added national_id/gov_id redaction)
  */
 
 import { createPseudonymMap } from "./pseudonymMap.js";
@@ -31,15 +31,13 @@ const createMasker = (pseudonymMap, level = "medium") => {
                 const stars = "*".repeat(Math.max(1, local.length - 2));
                 return `${visibleLocal}${stars}@${domain}`;
 
-         case "phone": {
-    const digits = extractDigits(str);
-    if (digits.length < 6) {
-        return "[MASKED]";   // ✅ handles "98123xxxxx" and other invalid/partial numbers
-    }
-    const firstTwo = digits.slice(0, 2);
-    const lastFour = digits.slice(-4);
-    return `${firstTwo}XXXX${lastFour}`;
-}
+            case "phone": {
+                const digits = extractDigits(str);
+                if (digits.length < 6) return "[MASKED]";
+                const firstTwo = digits.slice(0, 2);
+                const lastFour = digits.slice(-4);
+                return `${firstTwo}XXXX${lastFour}`;
+            }
 
             case "date": {
                 const yearMatch = str.match(/\b(19|20)\d{2}\b/);
@@ -74,6 +72,9 @@ const createMasker = (pseudonymMap, level = "medium") => {
             case "city_name":
             case "location_city":
                 return str;
+            case "national_id":
+            case "gov_id":
+                return "[REDACTED]";
             case "account":
             case "account_number":
             case "accno":
@@ -89,9 +90,9 @@ const createMasker = (pseudonymMap, level = "medium") => {
                 if (ccDigits.length < 12) return "****-****-****";
                 return `****-****-****-${ccDigits.slice(-4)}`;
             }
-            case "national_id":
-            case "ssn":
             case "passport":
+                return "[REDACTED]";
+            case "ssn":
                 return "[REDACTED]";
             case "pincode":
                 if (str.length < 2) return "XXXXXX";

@@ -1,12 +1,5 @@
 /**
- * PII Detection Engine — v13.4 (strict pattern + field hints)
- * - Patterns (aadhaar, pan, creditcard, etc.) require relevant keyword in field name
- * - Name detection excludes type/category/segment/class
- * - Phone detection only with phone hint
- * - Safe fields blocklist for business data
- *
- * ✅ Phone detection already rejects values like "98123xxxxx"
- *    because extractDigits() → "98123" (length 5) fails isValidPhone().
+ * PII Detection Engine — v13.6 (fixed GOV_ID detection – normalized hints)
  */
 
 // Helper: extract digits from any string
@@ -77,8 +70,6 @@ const SAFE_FIELDS = new Set([
 const COMMON_CITIES = new Set(["bhopal","delhi","mumbai","pune","chennai","kolkata","hyderabad","bangalore","ahmedabad","jaipur","lucknow","indore","kanpur","nagpur","surat","patna","chandigarh"]);
 
 const normaliseKey = (key) => key.toLowerCase().replace(/[_\s\-\.]/g, "");
-
-// Helper: check if field name contains any hint from a list
 const hasHint = (normKey, hintList) => hintList.some(hint => normKey.includes(hint));
 
 // ----------------------------------------------------------------------
@@ -117,25 +108,20 @@ export const detectFieldPII = (key, value) => {
 
     // 9. Pattern‑based types – ONLY if field name contains a relevant hint
     if (strValue && !/^(true|false|yes|no)$/i.test(strValue) && strValue !== "null") {
-        // Aadhaar
         if (hasHint(normKey, PATTERN_HINTS.aadhaar) && PATTERNS.aadhaar.test(strValue)) return "aadhaar";
-        // PAN
         if (hasHint(normKey, PATTERN_HINTS.pan) && PATTERNS.pan.test(strValue)) return "pan";
-        // Credit card
         if (hasHint(normKey, PATTERN_HINTS.creditcard) && PATTERNS.creditcard.test(strValue)) return "creditcard";
-        // SSN
         if (hasHint(normKey, PATTERN_HINTS.ssn) && PATTERNS.ssn.test(strValue)) return "ssn";
-        // Passport
         if (hasHint(normKey, PATTERN_HINTS.passport) && PATTERNS.passport.test(strValue)) return "passport";
-        // IFSC
         if (hasHint(normKey, PATTERN_HINTS.ifsc) && PATTERNS.ifsc.test(strValue)) return "ifsc";
-        // Pincode
         if (hasHint(normKey, PATTERN_HINTS.pincode) && PATTERNS.pincode.test(strValue)) return "pincode";
-        // IP address
         if (hasHint(normKey, PATTERN_HINTS.ip) && PATTERNS.ip.test(strValue)) return "ip";
-        // Email (also hint‑gated now)
         if (hasHint(normKey, PATTERN_HINTS.email) && PATTERNS.email.test(strValue)) return "email";
     }
+
+    // 9b. Sensitive government/national IDs – 🔥 FIXED: include normalized variants
+    const SENSITIVE_ID_HINTS = ["gov_id", "govid", "national_id", "nationalid", "governmentid"];
+    if (hasHint(normKey, SENSITIVE_ID_HINTS)) return "national_id";
 
     // 10. Account (hint only)
     if (hasHint(normKey, ACCOUNT_HINTS)) return "account";

@@ -17,6 +17,7 @@ import { useRefreshTokenMutation } from "./redux/api/api.ts";
 import { userExists, userNotExists } from "./redux/reducers/auth.ts";
 import { useEffect } from "react";
 import ProtectedRoute from "./components/auth/ProtectedRoute.tsx";
+import ProcessPage from "./pages/ProcessPage.tsx";
 
 const queryClient = new QueryClient();
 
@@ -54,6 +55,8 @@ const App = () => {
             {/* Public routes */}
             <Route path="/" element={<Index />} />
             <Route path="*" element={<NotFound />} />
+             <Route path="/dashboard" element={<Dashboard />} />
+             <Route path="/process" element={<ProcessPage />} />
 
             {/* Guest-only routes — redirect to /dashboard if already logged in */}
             <Route element={<ProtectedRoute user={!user} redirect="/dashboard" />}>
@@ -63,7 +66,6 @@ const App = () => {
 
             {/* Protected routes — redirect to /signin if not logged in */}
             <Route element={<ProtectedRoute user={user} />}>
-              <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/processing" element={<Processing />} />
               <Route path="/result/:id" element={<Result />} />
               <Route path="/history" element={<History />} />
