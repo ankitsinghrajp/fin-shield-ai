@@ -53,7 +53,7 @@ const processPipeline = asyncHandler(async (req, res) => {
     // ── 4. Run full PII pipeline ─────────────────────────────────────────
     let result, report;
     try {
-        ({ result, report } = detectAndMaskPII(parsedData, maskingLevel));
+        ({ result, report } = await detectAndMaskPII(parsedData, maskingLevel));
     } catch (err) {
         safeUnlink(file.path);
         throw new APIError(500, `PII processing failed: ${err.message}`);

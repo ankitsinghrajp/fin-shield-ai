@@ -3,18 +3,20 @@
  * - Weighted utility: fully unmasked=1, partial=0.5, redacted=0
  * - Improved explanations for customer_id and date
  * - Category mapping includes 'date' as 'temporal' in breakdown
+ * - Integrated compromise NLP context‑aware detection (post‑process)
  */
 
 import { detectPII } from "./piiDetector.js";
 import { maskData } from "./maskEngine.js";
 import { generateReport } from "./generateReport.js";
+import { augmentWithNLP } from "./nlpDetector.js";   // ← NLP enhancement
 
 const VALID_LEVELS = ["low", "medium", "high"];
 
 const PII_CATEGORIES = {
   directPII: ["name", "email", "phone", "customer_id"],
   sensitivePII: ["aadhaar", "pan", "account", "passport", "ssn", "creditcard", "national_id"],
-  quasiIdentifiers: ["address", "dob", "pincode", "gender", "age", "city", "state", "ip", "ifsc", "city_name", "company", "date"]
+  quasiIdentifiers: ["address", "dob", "pincode", "gender", "age", "city", "state", "ip", "ifsc", "city_name", "company", "date", "url"]
 };
 
 // Weighted utility: 1 = unchanged, 0.5 = partial (contains * or X), 0 = redacted
@@ -138,7 +140,7 @@ const detectInputType = (data) => {
 
 const getUtilityNote = () => `Utility score is weighted: fully unmasked/generalized = 1, format‑preserving partial masking = 0.5, fully redacted = 0.`;
 
-export const detectAndMaskPII = (data, maskingLevel = "medium") => {
+export const detectAndMaskPII = async (data, maskingLevel = "medium") => {
     const level = VALID_LEVELS.includes(maskingLevel) ? maskingLevel : "medium";
     const normalised = Array.isArray(data) ? data : [data];
 
@@ -156,12 +158,21 @@ export const detectAndMaskPII = (data, maskingLevel = "medium") => {
                 utilityNote: getUtilityNote(),
                 explanations: {},
                 riskScore: { level: "low", score: 0, reason: "No data" },
-                pipeline: { steps: ["ingestion","detection","masking","reporting"], inputType: "unknown", version: "3.0" }
+                pipeline: { steps: ["ingestion","detection","masking","reporting"], inputType: "unknown", version: "3.2" }
             },
         };
     }
 
-    const tagged = detectPII(normalised);
+    // 1. Syntactic detection (your existing engine)
+    let tagged = detectPII(normalised);
+
+    // 2. 🔥 NLP context-aware enhancement (compromise)
+    try {
+        tagged = await augmentWithNLP(normalised, tagged);
+    } catch (err) {
+        console.warn('[piiEngine] NLP enhancement skipped:', err.message);
+    }
+
     const totalFields = normalised.reduce((sum, record) => sum + countFields(record), 0);
     const rawReport = generateReport(tagged, totalFields);
     const categorizedBreakdown = getCategorizedBreakdown(rawReport.breakdown);
@@ -183,7 +194,7 @@ export const detectAndMaskPII = (data, maskingLevel = "medium") => {
         utilityNote: getUtilityNote(),
         explanations,
         riskScore,
-        pipeline: { steps: ["ingestion","detection","masking","reporting"], inputType, version: "3.0" }
+        pipeline: { steps: ["ingestion","detection","masking","reporting"], inputType, version: "3.2" }
     };
     return { result: maskedResult, report };
 };

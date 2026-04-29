@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "compromise": "^14.15.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "csv-parser": "^3.2.0",
