@@ -93,50 +93,62 @@ export const UploadBox = ({ compact = false, onResult }: UploadBoxProps) => {
       className={cn(
         "relative rounded-2xl border-2 border-dashed transition-all glass",
         dragOver
-          ? "border-primary bg-primary/5 shadow-glow-primary"
+          ? "border-primary bg-primary/5 shadow-glow-primary scale-[1.01]"
           : "border-border/60 hover:border-primary/50",
-        compact ? "p-6" : "p-10"
+        compact ? "p-4 sm:p-6" : "p-6 sm:p-10"
       )}
     >
       {!file ? (
         <div className="flex flex-col items-center text-center">
-          <div className="relative mb-4">
+          <div className="relative mb-3 sm:mb-4">
             <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full" />
-            <div className="relative p-4 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 border border-primary/30">
-              <Upload className="h-7 w-7 text-primary" />
+            <div className={cn(
+              "relative rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 border border-primary/30",
+              compact ? "p-3 sm:p-4" : "p-4"
+            )}>
+              <Upload className={cn("text-primary", compact ? "h-6 w-6 sm:h-7 sm:w-7" : "h-7 w-7")} />
             </div>
           </div>
-          <h3 className={cn("font-semibold", compact ? "text-base" : "text-lg")}>
+
+          <h3 className={cn("font-semibold", compact ? "text-sm sm:text-base" : "text-base sm:text-lg")}>
             Drop your dataset here
           </h3>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
             CSV, JSON, XLSX — up to 1 GB
           </p>
-          <label className="mt-4">
+
+          <label className="mt-3 sm:mt-4">
             <input
               type="file"
               className="hidden"
               onChange={onPick}
               accept=".csv,.json,.xlsx"
             />
-            <span className="inline-flex items-center justify-center rounded-md text-sm font-medium px-4 py-2 bg-gradient-primary text-primary-foreground btn-glow cursor-pointer shadow-glow-primary">
+            <span className={cn(
+              "inline-flex items-center justify-center rounded-md font-medium bg-gradient-primary text-primary-foreground btn-glow cursor-pointer shadow-glow-primary transition-transform hover:scale-105 active:scale-95",
+              compact ? "text-xs px-3 py-2" : "text-sm px-4 py-2"
+            )}>
               Browse files
             </span>
           </label>
-          <p className="mt-3 text-[11px] font-mono text-muted-foreground">
+
+          <p className="mt-2.5 sm:mt-3 text-[10px] sm:text-[11px] font-mono text-muted-foreground">
             🔒 Processed in-memory · never stored
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:gap-4">
           {/* File row */}
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-xl bg-primary/10 border border-primary/30">
-              <FileText className="h-6 w-6 text-primary" />
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "rounded-xl bg-primary/10 border border-primary/30 shrink-0",
+              compact ? "p-2" : "p-2.5 sm:p-3"
+            )}>
+              <FileText className={cn("text-primary", compact ? "h-5 w-5" : "h-5 w-5 sm:h-6 sm:w-6")} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-medium truncate">{file.name}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="font-medium truncate text-sm">{file.name}</p>
+              <p className="text-[10px] sm:text-xs text-muted-foreground">
                 {(file.size / 1024 / 1024).toFixed(2)} MB · ready to process
               </p>
             </div>
@@ -145,26 +157,34 @@ export const UploadBox = ({ compact = false, onResult }: UploadBoxProps) => {
               size="icon"
               onClick={() => setFile(null)}
               disabled={isLoading}
+              className="h-8 w-8 sm:h-10 sm:w-10 shrink-0"
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             </Button>
           </div>
 
-          {/* Masking level + submit row */}
-          <div className="flex items-center gap-3 flex-wrap">
+          {/* Masking level + submit — stacked on mobile */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
             {/* Masking level dropdown */}
-            <div className="relative">
+            <div className="relative flex-1">
               <button
                 type="button"
                 onClick={() => setLevelOpen((v) => !v)}
                 disabled={isLoading}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border/60 bg-background/60 text-sm font-medium hover:border-primary/50 transition-colors"
+                className="w-full inline-flex items-center justify-between gap-2 px-3 py-2 sm:py-2.5 rounded-lg border border-border/60 bg-background/60 text-sm font-medium hover:border-primary/50 transition-colors"
               >
-                <span className="capitalize">{maskingLevel}</span>
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                <div className="flex items-center gap-2">
+                  <span className={cn("w-2 h-2 rounded-full shrink-0", {
+                    "bg-green-400": maskingLevel === "low",
+                    "bg-yellow-400": maskingLevel === "medium",
+                    "bg-red-400": maskingLevel === "high",
+                  })} />
+                  <span className="capitalize">{maskingLevel}</span>
+                </div>
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               </button>
               {levelOpen && (
-                <div className="absolute left-0 mt-1 z-20 w-64 rounded-xl border border-border/60 bg-background/95 backdrop-blur shadow-lg overflow-hidden">
+                <div className="absolute left-0 right-0 mt-1 z-20 rounded-xl border border-border/60 bg-background/95 backdrop-blur shadow-lg overflow-hidden">
                   {MASKING_LEVELS.map((lvl) => (
                     <button
                       key={lvl}
@@ -174,12 +194,19 @@ export const UploadBox = ({ compact = false, onResult }: UploadBoxProps) => {
                         setLevelOpen(false);
                       }}
                       className={cn(
-                        "w-full text-left px-4 py-3 text-sm hover:bg-muted/50 transition-colors",
+                        "w-full text-left px-4 py-2.5 sm:py-3 text-sm hover:bg-muted/50 transition-colors flex items-center gap-3",
                         maskingLevel === lvl && "bg-primary/10 text-primary"
                       )}
                     >
-                      <p className="font-medium capitalize">{lvl}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{maskingInfo[lvl]}</p>
+                      <span className={cn("w-2 h-2 rounded-full shrink-0", {
+                        "bg-green-400": lvl === "low",
+                        "bg-yellow-400": lvl === "medium",
+                        "bg-red-400": lvl === "high",
+                      })} />
+                      <div>
+                        <p className="font-medium capitalize">{lvl}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{maskingInfo[lvl]}</p>
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -189,7 +216,7 @@ export const UploadBox = ({ compact = false, onResult }: UploadBoxProps) => {
             <Button
               onClick={startProcessing}
               disabled={isLoading}
-              className="bg-gradient-primary text-primary-foreground btn-glow shadow-glow-primary ml-auto"
+              className="bg-gradient-primary text-primary-foreground btn-glow shadow-glow-primary sm:ml-auto transition-transform hover:scale-105 active:scale-95 w-full sm:w-auto"
             >
               {isLoading ? (
                 <>

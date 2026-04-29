@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Navbar } from "@/components/Navbar";
 import { PIIHighlighter } from "@/components/PIIHighlighter";
 import { sampleTokens } from "@/lib/mockData";
+import Footer from "@/components/Footer";
 
 const features = [
   { icon: Search, title: "AI PII Detection", desc: "Transformer models identify 40+ PII categories — names, emails, phones, IDs, addresses — across structured and unstructured data.", accent: "primary" },
@@ -180,18 +181,13 @@ export default function Landing() {
             <h3 className="text-2xl lg:text-3xl font-bold">Ready to clean your dataset?</h3>
             <p className="mt-3 text-muted-foreground max-w-xl mx-auto">Try the full pipeline on a sample file — no signup required.</p>
             <Button asChild size="lg" className="mt-6 bg-gradient-primary text-primary-foreground btn-glow shadow-glow-primary">
-              <Link to="/dashboard">Open Dashboard <ArrowRight className="ml-2 h-4 w-4" /></Link>
+              <Link to="/process">Start Processing <ArrowRight className="ml-2 h-4 w-4" /></Link>
             </Button>
           </div>
         </div>
       </section>
 
-      <footer className="border-t border-border/40 py-8">
-        <div className="container flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
-          <p>© 2026 PrivacyGuard AI. All rights reserved.</p>
-          <p className="font-mono">v2.4.1 · pipeline online</p>
-        </div>
-      </footer>
+    <Footer/>
     </div>
   );
 }

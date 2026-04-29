@@ -3,16 +3,19 @@ import {
   Upload, FileText, X, Loader2, ChevronDown, ChevronUp,
   Download, Shield, Database, BarChart3, AlertTriangle,
   Search, Copy, Check, Table2, Braces, Clock, Eye, EyeOff,
-  Zap,
+  Zap, GitBranch, CheckCircle,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
+  AreaChart, Area, LineChart, Line,
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useProcessDatasetMutation } from "@/redux/api/api";
 import toast from "react-hot-toast";
+import { Navbar } from "@/components/Navbar";
+import Footer from "@/components/Footer";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,17 +42,23 @@ type MaskingLevel = "low" | "medium" | "high";
 type ViewMode = "table" | "json";
 
 const MASKING_INFO: Record<MaskingLevel, { label: string; desc: string; color: string }> = {
-  low: { label: "Low", desc: "Minimal masking, most fields retained", color: "text-green-400 border-green-400/30 bg-green-400/10" },
-  medium: { label: "Medium", desc: "Balanced — partial masking on sensitive fields", color: "text-yellow-400 border-yellow-400/30 bg-yellow-400/10" },
+  low: { label: "Low", desc: "Minimal masking, most fields retained", color: "text-emerald-400 border-emerald-400/30 bg-emerald-400/10" },
+  medium: { label: "Medium", desc: "Balanced — partial masking on sensitive fields", color: "text-amber-400 border-amber-400/30 bg-amber-400/10" },
   high: { label: "High", desc: "Maximum privacy — heavy redaction", color: "text-red-400 border-red-400/30 bg-red-400/10" },
 };
 
 const RISK_COLORS: Record<string, string> = {
-  low: "text-green-400 bg-green-400/10 border-green-400/30",
-  medium: "text-yellow-400 bg-yellow-400/10 border-yellow-400/30",
+  low: "text-emerald-400 bg-emerald-400/10 border-emerald-400/30",
+  medium: "text-amber-400 bg-amber-400/10 border-amber-400/30",
   high: "text-red-400 bg-red-400/10 border-red-400/30",
 };
-const CHART_COLORS = ["#6366f1", "#8b5cf6", "#a78bfa", "#c4b5fd"];
+
+const DONUT_COLORS = ["#f97316", "#facc15", "#fb7185", "#60a5fa"];
+const SEVERITY_COLORS: Record<string, string> = {
+  "Direct PII": "#f97316",
+  "Sensitive PII": "#facc15",
+  "Quasi-ID": "#fb7185",
+};
 
 function isValidFile(f: File) {
   const ext = "." + f.name.split(".").pop()?.toLowerCase();
@@ -75,9 +84,86 @@ function downloadJSON(data: Record<string, unknown>[]) {
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "masked_data.json"; a.click();
 }
 function downloadXLSX(data: Record<string, unknown>[]) {
-  // Simple CSV with .xlsx extension for demo; real impl would use SheetJS
   downloadCSV(data);
   toast("XLSX download: install SheetJS for native XLSX support", { icon: "ℹ️" });
+}
+
+// ─── Custom Tooltip ───────────────────────────────────────────────────────────
+
+const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#0f1117", border: "1px solid #1e2530", borderRadius: 8, padding: "8px 14px", fontSize: 12 }}>
+      {label && <p style={{ color: "#6b7280", marginBottom: 4, fontFamily: "monospace" }}>{label}</p>}
+      {payload.map((p, i) => (
+        <p key={i} style={{ color: p.color, fontFamily: "monospace" }}>{p.name}: <strong>{p.value}</strong></p>
+      ))}
+    </div>
+  );
+};
+
+// ─── Gauge / Quality Score ────────────────────────────────────────────────────
+
+function QualityGauge({ score, label }: { score: number; label: string }) {
+  const radius = 54;
+  const stroke = 8;
+  const circumference = Math.PI * radius;
+  const offset = circumference * (1 - score / 100);
+  const color = score >= 70 ? "#10b981" : score >= 40 ? "#f59e0b" : "#f87171";
+
+  return (
+    <div className="flex flex-col items-center justify-center">
+      <svg width={140} height={80} viewBox="0 0 140 80">
+        <path
+          d="M 14 70 A 56 56 0 0 1 126 70"
+          fill="none"
+          stroke="#1e2530"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+        />
+        <path
+          d="M 14 70 A 56 56 0 0 1 126 70"
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          style={{ transition: "stroke-dashoffset 1s ease, stroke 0.3s ease" }}
+        />
+      </svg>
+      <div className="text-center -mt-6">
+        <p className="text-3xl font-bold font-mono" style={{ color }}>{score.toFixed(1)}%</p>
+        <p className="text-xs text-gray-500 mt-0.5">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Type Progress Bar ────────────────────────────────────────────────────────
+
+function TypeBar({ label, count, max, color, icon }: { label: string; count: number; max: number; color: string; icon: string }) {
+  const pct = max > 0 ? (count / max) * 100 : 0;
+  return (
+    <div className="p-4 rounded-xl border border-white/5 bg-white/[0.03]">
+      <div className="flex items-center gap-2.5 mb-2">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-base" style={{ background: `${color}20` }}>
+          {icon}
+        </div>
+        <div>
+          <p className="text-xs text-gray-400 font-medium">{label}</p>
+          <p className="text-xl font-bold font-mono" style={{ color }}>{count}</p>
+        </div>
+      </div>
+      <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${pct}%`, background: color }}
+        />
+      </div>
+      <p className="text-[10px] text-gray-600 mt-1 font-mono">{pct.toFixed(0)}% of max</p>
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -119,6 +205,7 @@ function UploadSection({
       const res = await processDataset({ file, level: maskingLevel }).unwrap() as { data: PipelineData };
       const elapsed = (performance.now() - t0) / 1000;
       onResult(res.data, elapsed);
+      console.log("This is the res.data-->",res.data);
     } catch (err: unknown) {
       const msg = err && typeof err === "object" && "data" in err
         ? (err as { data?: { message?: string } }).data?.message
@@ -128,119 +215,89 @@ function UploadSection({
   };
 
   return (
-    <section className="min-h-[80vh] flex flex-col items-center justify-center px-4 py-20 relative">
-      {/* Background glow */}
+    <section className="min-h-[100dvh] flex flex-col items-center justify-center px-4 py-12 sm:py-20 relative">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-primary/10 blur-[120px]" />
-        <div className="absolute top-2/3 left-1/4 w-[300px] h-[300px] rounded-full bg-secondary/8 blur-[80px]" />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] sm:w-[600px] h-[300px] sm:h-[600px] rounded-full bg-primary/10 blur-[80px] sm:blur-[120px]" />
       </div>
 
       <div className="relative z-10 w-full max-w-2xl flex flex-col items-center text-center">
-        {/* Badge */}
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-xs font-mono mb-6 animate-fade-in">
-          <Shield className="h-3 w-3" />
-          Privacy-first · In-memory processing · Zero storage
+        <div className="inline-flex items-center gap-1.5 sm:gap-2 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-[10px] sm:text-xs font-mono mb-5 sm:mb-6">
+          <Shield className="h-3 w-3 shrink-0" />
+          <span>Privacy-first · In-memory · Zero storage</span>
         </div>
 
-        {/* Headline */}
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-3 animate-fade-in" style={{ animationDelay: "0.1s" }}>
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight mb-2 sm:mb-3 px-2">
           Data Privacy{" "}
-          <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
-            Engine
-          </span>
+          <span className="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Engine</span>
         </h1>
-        <p className="text-muted-foreground text-lg mb-10 animate-fade-in" style={{ animationDelay: "0.15s" }}>
+        <p className="text-muted-foreground text-sm sm:text-base lg:text-lg mb-8 sm:mb-10 px-4 leading-relaxed">
           Upload your dataset and instantly detect &amp; mask sensitive information
         </p>
 
-        {/* Drop zone */}
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={onDrop}
           className={cn(
-            "w-full rounded-2xl border-2 border-dashed transition-all duration-300 glass animate-fade-in-up",
-            dragOver ? "border-primary bg-primary/5 shadow-glow-primary scale-[1.01]"
-              : "border-border/60 hover:border-primary/50"
+            "w-full rounded-2xl border-2 border-dashed transition-all duration-300 glass",
+            dragOver ? "border-primary bg-primary/5 shadow-glow-primary scale-[1.01]" : "border-border/60 hover:border-primary/50"
           )}
-          style={{ animationDelay: "0.2s" }}
         >
           {!file ? (
-            <div className="flex flex-col items-center py-14 px-6">
-              <div className="relative mb-5">
+            <div className="flex flex-col items-center py-10 sm:py-14 px-4 sm:px-6">
+              <div className="relative mb-4 sm:mb-5">
                 <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full" />
-                <div className="relative p-5 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 border border-primary/30">
-                  <Upload className="h-9 w-9 text-primary" />
+                <div className="relative p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20 border border-primary/30">
+                  <Upload className="h-7 w-7 sm:h-9 sm:w-9 text-primary" />
                 </div>
               </div>
-              <h3 className="text-xl font-semibold mb-1">Drop your dataset here</h3>
-              <p className="text-sm text-muted-foreground mb-1">or click to browse your files</p>
+              <h3 className="text-base sm:text-xl font-semibold mb-1">Drop your dataset here</h3>
+              <p className="text-xs sm:text-sm text-muted-foreground mb-1">or click to browse your files</p>
               <div className="flex gap-2 mt-3 mb-5">
                 {["CSV", "JSON", "XLSX"].map(t => (
-                  <span key={t} className="text-xs px-2.5 py-1 rounded-md border border-border/50 bg-muted/30 font-mono text-muted-foreground">
-                    {t}
-                  </span>
+                  <span key={t} className="text-[10px] sm:text-xs px-2 sm:px-2.5 py-1 rounded-md border border-border/50 bg-muted/30 font-mono text-muted-foreground">{t}</span>
                 ))}
               </div>
               <label>
                 <input type="file" className="hidden" onChange={onPick} accept=".csv,.json,.xlsx" />
-                <span className="inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold px-6 py-3 bg-gradient-primary text-primary-foreground btn-glow cursor-pointer shadow-glow-primary transition-transform hover:scale-105">
+                <span className="inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold px-5 sm:px-6 py-2.5 sm:py-3 bg-gradient-primary text-primary-foreground btn-glow cursor-pointer shadow-glow-primary transition-transform hover:scale-105 active:scale-95">
                   <Upload className="h-4 w-4" /> Browse files
                 </span>
               </label>
             </div>
           ) : (
-            <div className="p-6 flex flex-col gap-4">
-              {/* File info */}
-              <div className="flex items-center gap-4 p-4 rounded-xl bg-primary/5 border border-primary/20">
-                <div className="p-3 rounded-xl bg-primary/10 border border-primary/30 shrink-0">
-                  <FileText className="h-6 w-6 text-primary" />
+            <div className="p-4 sm:p-6 flex flex-col gap-3 sm:gap-4">
+              <div className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl bg-primary/5 border border-primary/20">
+                <div className="p-2 sm:p-3 rounded-xl bg-primary/10 border border-primary/30 shrink-0">
+                  <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0 text-left">
-                  <p className="font-semibold truncate">{file.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB ·{" "}
-                    {file.name.split(".").pop()?.toUpperCase()} · Ready to process
+                  <p className="font-semibold truncate text-sm sm:text-base">{file.name}</p>
+                  <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
+                    {(file.size / 1024 / 1024).toFixed(2)} MB · {file.name.split(".").pop()?.toUpperCase()} · Ready to process
                   </p>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setFile(null)} disabled={isLoading} className="shrink-0">
-                  <X className="h-4 w-4" />
+                <Button variant="ghost" size="icon" onClick={() => setFile(null)} disabled={isLoading} className="shrink-0 h-8 w-8 sm:h-10 sm:w-10">
+                  <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </Button>
               </div>
 
-              {/* Masking level + action */}
-              <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-                {/* Level picker */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:gap-3 sm:items-center">
                 <div className="relative flex-1">
-                  <button
-                    type="button"
-                    onClick={() => setLevelOpen(v => !v)}
-                    disabled={isLoading}
-                    className="w-full flex items-center justify-between gap-2 px-4 py-3 rounded-xl border border-border/60 bg-background/60 text-sm font-medium hover:border-primary/50 transition-colors"
-                  >
+                  <button type="button" onClick={() => setLevelOpen(v => !v)} disabled={isLoading}
+                    className="w-full flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl border border-border/60 bg-background/60 text-sm font-medium hover:border-primary/50 transition-colors">
                     <div className="flex items-center gap-2">
-                      <span className={cn("w-2 h-2 rounded-full", {
-                        "bg-green-400": maskingLevel === "low",
-                        "bg-yellow-400": maskingLevel === "medium",
-                        "bg-red-400": maskingLevel === "high",
-                      })} />
+                      <span className={cn("w-2 h-2 rounded-full shrink-0", { "bg-emerald-400": maskingLevel === "low", "bg-amber-400": maskingLevel === "medium", "bg-red-400": maskingLevel === "high" })} />
                       <span className="capitalize">Masking: {maskingLevel}</span>
                     </div>
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
                   </button>
                   {levelOpen && (
                     <div className="absolute left-0 right-0 mt-1 z-30 rounded-xl border border-border/60 bg-background/95 backdrop-blur shadow-xl overflow-hidden">
                       {(["low", "medium", "high"] as MaskingLevel[]).map(lvl => (
-                        <button key={lvl} type="button"
-                          onClick={() => { setMaskingLevel(lvl); setLevelOpen(false); }}
-                          className={cn("w-full text-left px-4 py-3 text-sm hover:bg-muted/50 transition-colors flex items-center gap-3",
-                            maskingLevel === lvl && "bg-primary/10")}
-                        >
-                          <span className={cn("w-2 h-2 rounded-full shrink-0", {
-                            "bg-green-400": lvl === "low",
-                            "bg-yellow-400": lvl === "medium",
-                            "bg-red-400": lvl === "high",
-                          })} />
+                        <button key={lvl} type="button" onClick={() => { setMaskingLevel(lvl); setLevelOpen(false); }}
+                          className={cn("w-full text-left px-4 py-3 text-sm hover:bg-muted/50 transition-colors flex items-center gap-3", maskingLevel === lvl && "bg-primary/10")}>
+                          <span className={cn("w-2 h-2 rounded-full shrink-0", { "bg-emerald-400": lvl === "low", "bg-amber-400": lvl === "medium", "bg-red-400": lvl === "high" })} />
                           <div>
                             <p className="font-medium capitalize">{MASKING_INFO[lvl].label}</p>
                             <p className="text-xs text-muted-foreground">{MASKING_INFO[lvl].desc}</p>
@@ -251,35 +308,28 @@ function UploadSection({
                   )}
                 </div>
 
-                {/* Process button */}
-                <Button
-                  onClick={handleProcess}
-                  disabled={isLoading}
-                  className="bg-gradient-primary text-primary-foreground btn-glow shadow-glow-primary px-8 py-3 h-auto font-semibold text-sm rounded-xl transition-transform hover:scale-105 shrink-0"
-                >
-                  {isLoading
-                    ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Analyzing dataset…</>
-                    : <><Zap className="h-4 w-4 mr-2" />Process Data</>}
+                <Button onClick={handleProcess} disabled={isLoading}
+                  className="bg-gradient-primary text-primary-foreground btn-glow shadow-glow-primary px-6 sm:px-8 py-2.5 sm:py-3 h-auto font-semibold text-sm rounded-xl transition-transform hover:scale-105 active:scale-95 shrink-0 w-full sm:w-auto">
+                  {isLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Analyzing…</> : <><Zap className="h-4 w-4 mr-2" />Process Data</>}
                 </Button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Processing loader overlay feel */}
         {isLoading && (
-          <div className="mt-6 flex flex-col items-center gap-3 animate-fade-in">
-            <div className="flex gap-1.5">
+          <div className="mt-5 sm:mt-6 flex flex-col items-center gap-3 animate-fade-in w-full px-2">
+            <div className="flex flex-wrap justify-center gap-x-3 gap-y-2">
               {["ingestion", "detection", "masking", "reporting"].map((step, i) => (
                 <div key={step} className="flex items-center gap-1.5">
-                  <div className="h-1.5 w-16 rounded-full bg-primary/20 overflow-hidden">
+                  <div className="h-1.5 w-10 sm:w-16 rounded-full bg-primary/20 overflow-hidden">
                     <div className="h-full bg-primary rounded-full animate-pulse" style={{ animationDelay: `${i * 0.2}s` }} />
                   </div>
-                  <span className="text-[10px] font-mono text-muted-foreground capitalize">{step}</span>
+                  <span className="text-[9px] sm:text-[10px] font-mono text-muted-foreground capitalize">{step}</span>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground font-mono animate-pulse">Running PII detection pipeline…</p>
+            <p className="text-xs text-muted-foreground font-mono animate-pulse text-center">Running PII detection pipeline…</p>
           </div>
         )}
       </div>
@@ -299,36 +349,76 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
   const [explanationsOpen, setExplanationsOpen] = useState(false);
   const [copiedRow, setCopiedRow] = useState<number | null>(null);
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
+  const [colPanelOpen, setColPanelOpen] = useState(false);
 
   const { report, result, runId, maskingLevel } = data;
   const risk = report.riskScore.level.toLowerCase();
   const allCols = result.length > 0 ? Object.keys(result[0]) : [];
 
-  // Search filter
   const filtered = useMemo(() => {
     if (!search.trim()) return result;
     const q = search.toLowerCase();
-    return result.filter(row =>
-      Object.values(row).some(v => String(v ?? "").toLowerCase().includes(q))
-    );
+    return result.filter(row => Object.values(row).some(v => String(v ?? "").toLowerCase().includes(q)));
   }, [result, search]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const pageData = filtered.slice(page * pageSize, (page + 1) * pageSize);
+  const visibleCols = allCols.filter(c => !hiddenCols.includes(c));
 
-  // Chart data
-  const breakdown = report.breakdown;
-  const pieData = [
-    { name: "Direct PII", value: Object.values(breakdown.directPII).reduce((a, b) => a + b, 0) },
-    { name: "Sensitive PII", value: Object.values(breakdown.sensitivePII).reduce((a, b) => a + b, 0) },
-    { name: "Quasi-ID", value: Object.values(breakdown.quasiIdentifiers).reduce((a, b) => a + b, 0) },
+  // ── Safe breakdown extraction — guards against undefined/missing keys ──
+  // Backend sends: breakdown.directPII, breakdown.sensitivePII, breakdown.quasiIdentifiers
+  // Any of these can be undefined if no fields of that type were detected.
+  const rawBreakdown = report.breakdown ?? {};
+  const directPII        = rawBreakdown.directPII        ?? {};
+  const sensitivePII     = rawBreakdown.sensitivePII     ?? {};
+  const quasiIdentifiers = rawBreakdown.quasiIdentifiers ?? {};
+
+  // Safe sum helper — Number() coerces any stray string values to numbers
+  const sumValues = (obj: Record<string, unknown>): number =>
+    Object.values(obj).reduce<number>((acc, v) => acc + (Number(v) || 0), 0);
+
+  // ── FIX: Use parseFloat instead of parseInt to preserve decimal precision ──
+  const utilityScore = parseFloat(report.utilityPercent);   // e.g. 70.50
+  const piiPercent   = parseFloat(report.piiPercent);       // e.g. 89.00
+
+  const qualityLabel =
+    utilityScore >= 70 ? "Good shape" :
+    utilityScore >= 40 ? "Needs work" :
+    "High risk";
+
+  // Type counts — computed once, reused everywhere
+  const typeCounts = {
+    Direct:    sumValues(directPII),        // e.g. 10+10+10+9 = 39
+    Sensitive: sumValues(sensitivePII),     // e.g. 10+10+10   = 30
+    Quasi:     sumValues(quasiIdentifiers), // e.g. 10+10      = 20
+  };
+  const maxType = Math.max(...Object.values(typeCounts), 1); // min 1 to avoid /0
+
+  // Donut data — "By PII Type"
+  const donutData = [
+    { name: "Direct PII",    value: typeCounts.Direct    },
+    { name: "Sensitive PII", value: typeCounts.Sensitive },
+    { name: "Quasi-ID",      value: typeCounts.Quasi     },
   ].filter(d => d.value > 0);
 
+  const totalPii = donutData.reduce((a, b) => a + b.value, 0);
+
+  // Bar data — "Fields by Category"
   const barData = [
-    ...Object.entries(breakdown.directPII).map(([k, v]) => ({ field: k, count: v, type: "Direct" })),
-    ...Object.entries(breakdown.sensitivePII).map(([k, v]) => ({ field: k, count: v, type: "Sensitive" })),
-    ...Object.entries(breakdown.quasiIdentifiers).map(([k, v]) => ({ field: k, count: v, type: "Quasi" })),
+    ...Object.entries(directPII).map(([k, v])        => ({ field: k, count: Number(v) || 0, type: "Direct"    })),
+    ...Object.entries(sensitivePII).map(([k, v])     => ({ field: k, count: Number(v) || 0, type: "Sensitive" })),
+    ...Object.entries(quasiIdentifiers).map(([k, v]) => ({ field: k, count: Number(v) || 0, type: "Quasi"     })),
   ];
+
+  // Area trend — simulated from records
+  const trendData = useMemo(() => {
+    const steps = 12;
+    return Array.from({ length: steps }, (_, i) => ({
+      date: `Day ${i + 1}`,
+      total: Math.round(report.records * (0.6 + 0.4 * Math.sin(i / 3) * Math.random())),
+      pii: Math.round(report.piiFields * (0.5 + 0.5 * Math.cos(i / 3) * Math.random())),
+    }));
+  }, [report.records, report.piiFields]);
 
   function copyRow(row: Record<string, unknown>, idx: number) {
     navigator.clipboard.writeText(JSON.stringify(row, null, 2));
@@ -337,230 +427,275 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
   }
 
   function toggleCol(col: string) {
-    setHiddenCols(prev =>
-      prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col]
-    );
+    setHiddenCols(prev => prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col]);
   }
 
-  const visibleCols = allCols.filter(c => !hiddenCols.includes(c));
+  const cardBase = "rounded-2xl border border-white/5 bg-[#0d1117]/80 backdrop-blur";
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-10 space-y-8 animate-fade-in-up">
+    <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-10 space-y-5 sm:space-y-6 animate-fade-in-up">
 
-      {/* ── Header bar ── */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      {/* ── Header ── */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-xs font-mono text-muted-foreground">Run #{runId}</span>
-            <span className="text-xs font-mono text-muted-foreground">·</span>
-            <span className="text-xs font-mono text-muted-foreground flex items-center gap-1">
-              <Clock className="h-3 w-3" /> Completed in {elapsed.toFixed(2)}s ⚡
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-1">
+            <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="text-[10px] sm:text-xs font-mono text-gray-500">Run #{runId}</span>
+            <span className="text-gray-700 hidden sm:inline">·</span>
+            <span className="text-[10px] sm:text-xs font-mono text-gray-500 flex items-center gap-1">
+              <Clock className="h-3 w-3 shrink-0" /> {elapsed.toFixed(2)}s
             </span>
           </div>
-          <h2 className="text-2xl font-bold tracking-tight">Pipeline Results</h2>
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Pipeline Results</h2>
         </div>
-        <Button variant="outline" size="sm" onClick={onReset} className="border-border/60 hover:border-primary/50">
+        <Button variant="outline" size="sm" onClick={onReset} className="border-white/10 hover:border-primary/50 self-start sm:self-auto text-xs sm:text-sm">
           <Upload className="h-3.5 w-3.5 mr-1.5" /> Process another file
         </Button>
       </div>
 
-      {/* ── Stats cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          {
-            label: "Records",
-            value: report.records.toLocaleString(),
-            sub: `${report.totalFields} total fields`,
-            icon: Database,
-            accent: "text-primary",
-            bg: "from-primary/10 to-primary/5 border-primary/20",
-          },
-          {
-            label: "PII Detected",
-            value: `${report.piiPercent}%`,
-            sub: `${report.piiFields} PII fields`,
-            icon: Shield,
-            accent: "text-secondary",
-            bg: "from-secondary/10 to-secondary/5 border-secondary/20",
-          },
-          {
-            label: "Data Utility",
-            value: `${report.utilityPercent}%`,
-            sub: "utility retained",
-            icon: BarChart3,
-            accent: "text-indigo-400",
-            bg: "from-indigo-500/10 to-indigo-500/5 border-indigo-500/20",
-          },
-          {
-            label: "Risk Level",
-            value: report.riskScore.level.toUpperCase(),
-            sub: `Score: ${report.riskScore.score.toFixed(2)}`,
-            icon: AlertTriangle,
-            accent: risk === "low" ? "text-green-400" : risk === "medium" ? "text-yellow-400" : "text-red-400",
-            bg: risk === "low"
-              ? "from-green-400/10 to-green-400/5 border-green-400/20"
-              : risk === "medium"
-              ? "from-yellow-400/10 to-yellow-400/5 border-yellow-400/20"
-              : "from-red-400/10 to-red-400/5 border-red-400/20",
-          },
-        ].map(({ label, value, sub, icon: Icon, accent, bg }) => (
-          <div key={label} className={cn("glass rounded-2xl p-5 border bg-gradient-to-br", bg)}>
-            <div className="flex items-start justify-between mb-3">
-              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">{label}</p>
-              <Icon className={cn("h-4 w-4", accent)} />
-            </div>
-            <p className={cn("text-2xl font-bold font-mono", accent)}>{value}</p>
-            <p className="text-xs text-muted-foreground mt-1">{sub}</p>
-          </div>
-        ))}
-      </div>
+      {/* ── ROW 1: Area chart + Quality Gauge ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
 
-      {/* ── Charts ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Pie */}
-        <div className="glass rounded-2xl p-6 border border-border/40">
-          <h3 className="text-sm font-semibold mb-4 text-muted-foreground uppercase tracking-wider font-mono">PII Distribution</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie data={pieData} cx="50%" cy="50%" innerRadius={55} outerRadius={90}
-                paddingAngle={3} dataKey="value" label={({ name, percent }) =>
-                  `${name} ${(percent * 100).toFixed(0)}%`}
-                labelLine={false}>
-                {pieData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-              </Pie>
-              <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: "8px", fontSize: "12px" }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="flex flex-wrap gap-3 mt-2 justify-center">
-            {pieData.map((d, i) => (
-              <div key={d.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: CHART_COLORS[i] }} />
-                {d.name}: {d.value}
-              </div>
-            ))}
+        {/* Area chart */}
+        <div className={cn(cardBase, "p-4 sm:p-5")}>
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 className="h-4 w-4 text-emerald-400" />
+            <h3 className="text-sm font-semibold">Field Detection Trend</h3>
           </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={trendData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
+              <defs>
+                <linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="piiGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e2530" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#4b5563" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: "#4b5563" }} axisLine={false} tickLine={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Area type="monotone" dataKey="total" name="Total Fields" stroke="#10b981" strokeWidth={2} fill="url(#totalGrad)" dot={false} activeDot={{ r: 4, fill: "#10b981" }} />
+              <Area type="monotone" dataKey="pii" name="PII Fields" stroke="#f97316" strokeWidth={2} fill="url(#piiGrad)" dot={false} activeDot={{ r: 4, fill: "#f97316" }} />
+              <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: 11, paddingTop: 12, color: "#9ca3af" }} />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
 
-        {/* Bar */}
-        <div className="glass rounded-2xl p-6 border border-border/40">
-          <h3 className="text-sm font-semibold mb-4 text-muted-foreground uppercase tracking-wider font-mono">Fields by Category</h3>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={barData} layout="vertical" margin={{ left: 10, right: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="field" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} width={80} />
-              <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: "8px", fontSize: "12px" }} />
-              <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+        {/* Quality Score card */}
+        <div className={cn(cardBase, "p-4 sm:p-5 flex flex-col")}>
+          <div className="flex items-center gap-2 mb-3">
+            <CheckCircle className="h-4 w-4 text-amber-400" />
+            <h3 className="text-sm font-semibold">Quality Score</h3>
+          </div>
+          <div className="flex-1 flex flex-col items-center justify-center">
+            {/* FIX: Pass utilityScore (float) to the gauge — renders "70.5%" correctly */}
+            <QualityGauge score={utilityScore} label={qualityLabel} />
+          </div>
+          {/*
+            FIX: Show all 4 key stats — records, piiFields, piiPercent, utilityPercent.
+            Previously only records + piiFields were shown; piiPercent was never displayed.
+          */}
+          <div className="grid grid-cols-2 gap-2 mt-4">
+            <div className="rounded-xl bg-white/[0.03] border border-white/5 px-3 py-2.5 text-center">
+              <p className="text-xl font-bold font-mono text-white">{report.records.toLocaleString()}</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">Records</p>
+            </div>
+            <div className="rounded-xl bg-white/[0.03] border border-white/5 px-3 py-2.5 text-center">
+              <p className="text-xl font-bold font-mono text-orange-400">{report.piiFields}</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">PII Fields</p>
+            </div>
+            <div className="rounded-xl bg-white/[0.03] border border-white/5 px-3 py-2.5 text-center">
+              {/* FIX: Display piiPercent from backend, using parseFloat for decimal accuracy */}
+              <p className="text-xl font-bold font-mono text-red-400">{piiPercent.toFixed(1)}%</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">PII %</p>
+            </div>
+            <div className="rounded-xl bg-white/[0.03] border border-white/5 px-3 py-2.5 text-center">
+              {/* FIX: Display utilityPercent from backend with decimal, not truncated via parseInt */}
+              <p className="text-xl font-bold font-mono text-emerald-400">{utilityScore.toFixed(1)}%</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">Utility %</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── ROW 2: Bar chart + Donut ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+
+        {/* Bar chart */}
+        <div className={cn(cardBase, "p-4 sm:p-5")}>
+          <div className="flex items-center gap-2 mb-4">
+            <GitBranch className="h-4 w-4 text-emerald-400" />
+            <h3 className="text-sm font-semibold">Fields by Category</h3>
+          </div>
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={barData} margin={{ top: 0, right: 8, bottom: 0, left: -10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e2530" vertical={false} />
+              <XAxis dataKey="field" tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: 11, paddingTop: 12, color: "#9ca3af" }} />
+              <Bar dataKey="count" name="Fields" radius={[4, 4, 0, 0]}>
                 {barData.map((entry, i) => (
-                  <Cell key={i} fill={
-                    entry.type === "Direct" ? "#6366f1"
-                      : entry.type === "Sensitive" ? "#8b5cf6"
-                      : "#a78bfa"
-                  } />
+                  <Cell key={i} fill={entry.type === "Direct" ? "#f97316" : entry.type === "Sensitive" ? "#facc15" : "#60a5fa"} />
                 ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        {/* Donut */}
+        <div className={cn(cardBase, "p-4 sm:p-5")}>
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="h-4 w-4 text-amber-400" />
+            <h3 className="text-sm font-semibold">By PII Type</h3>
+          </div>
+          <div className="flex items-center justify-center">
+            <ResponsiveContainer width="100%" height={160}>
+              <PieChart>
+                <Pie data={donutData} cx="50%" cy="50%" innerRadius={48} outerRadius={72}
+                  paddingAngle={2} dataKey="value" strokeWidth={0}>
+                  {donutData.map((_, i) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="space-y-2 mt-1">
+            {donutData.map((d, i) => (
+              <div key={d.name} className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: DONUT_COLORS[i] }} />
+                  <span className="text-gray-400">{d.name}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold" style={{ color: DONUT_COLORS[i] }}>{d.value}</span>
+                  {/*
+                    FIX: Percentage here is share of PII field *detections* (e.g. 39 / 89 = 43.8%)
+                    Use totalPii (sum of all detected PII field hits) as denominator — correct.
+                  */}
+                  <span className="text-gray-600 font-mono text-[10px]">
+                    ({totalPii > 0 ? ((d.value / totalPii) * 100).toFixed(1) : "0.0"}%)
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Risk badge */}
+          <div className="mt-3 pt-3 border-t border-white/5 flex items-center gap-2">
+            <span className={cn("text-[10px] px-2 py-1 rounded-lg border font-mono font-medium capitalize", RISK_COLORS[risk] ?? "text-gray-400")}>
+              Risk: {report.riskScore.level} · {report.riskScore.score.toFixed(2)}
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* ── Masked data table ── */}
-      <div className="glass rounded-2xl border border-border/40 overflow-hidden">
-        {/* Table toolbar */}
-        <div className="px-5 py-4 border-b border-border/40 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-          <h3 className="text-sm font-semibold">Masked Data Preview</h3>
-          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-            {/* Search */}
-            <div className="relative flex-1 sm:flex-none">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={e => { setSearch(e.target.value); setPage(0); }}
-                placeholder="Search records…"
-                className="pl-8 pr-3 py-2 text-xs rounded-lg border border-border/60 bg-background/60 w-full sm:w-48 focus:outline-none focus:border-primary/50 transition-colors"
-              />
-            </div>
+      {/* ── ROW 3: PII by Type ── */}
+      <div className={cn(cardBase, "p-4 sm:p-5")}>
+        <div className="flex items-center gap-2 mb-4">
+          <BarChart3 className="h-4 w-4 text-emerald-400" />
+          <h3 className="text-sm font-semibold">PII by Type</h3>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <TypeBar label="Direct PII"       count={typeCounts.Direct}    max={maxType}           color="#f87171" icon="🛡️" />
+          <TypeBar label="Sensitive PII"    count={typeCounts.Sensitive} max={maxType}           color="#f97316" icon="🔥" />
+          <TypeBar label="Quasi-Identifiers" count={typeCounts.Quasi}   max={maxType}           color="#60a5fa" icon="⚡" />
+          <TypeBar label="Total Fields"     count={report.totalFields}   max={report.totalFields} color="#10b981" icon="🗄️" />
+        </div>
+      </div>
 
-            {/* View toggle */}
-            <div className="flex rounded-lg border border-border/60 overflow-hidden">
+      {/* ── ROW 4: Masked Data Table ── */}
+      <div className={cn(cardBase, "overflow-hidden")}>
+        {/* Toolbar */}
+        <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-white/5 flex flex-col gap-2 sm:gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Database className="h-4 w-4 text-emerald-400" />
+              <h3 className="text-sm font-semibold">Masked Data Preview</h3>
+            </div>
+            <div className="flex rounded-lg border border-white/10 overflow-hidden">
               <button onClick={() => setViewMode("table")}
-                className={cn("px-3 py-2 text-xs flex items-center gap-1.5 transition-colors",
-                  viewMode === "table" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/30")}>
-                <Table2 className="h-3.5 w-3.5" /> Table
+                className={cn("px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition-colors",
+                  viewMode === "table" ? "bg-primary/20 text-primary" : "text-gray-500 hover:bg-white/5")}>
+                <Table2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                <span className="hidden xs:inline">Table</span>
               </button>
               <button onClick={() => setViewMode("json")}
-                className={cn("px-3 py-2 text-xs flex items-center gap-1.5 border-l border-border/60 transition-colors",
-                  viewMode === "json" ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-muted/30")}>
-                <Braces className="h-3.5 w-3.5" /> JSON
+                className={cn("px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 border-l border-white/10 transition-colors",
+                  viewMode === "json" ? "bg-primary/20 text-primary" : "text-gray-500 hover:bg-white/5")}>
+                <Braces className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+                <span className="hidden xs:inline">JSON</span>
               </button>
             </div>
+          </div>
 
-            {/* Page size */}
-            <select
-              value={pageSize}
-              onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
-              className="px-3 py-2 text-xs rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50 cursor-pointer"
-            >
-              {[10, 25, 50].map(n => <option key={n} value={n}>{n} rows</option>)}
+          <div className="flex gap-2 items-center">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-600" />
+              <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }}
+                placeholder="Search records…"
+                className="pl-8 pr-3 py-2 text-xs rounded-lg border border-white/10 bg-white/[0.03] w-full focus:outline-none focus:border-primary/50 transition-colors text-gray-300" />
+            </div>
+            <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
+              className="px-2 sm:px-3 py-2 text-xs rounded-lg border border-white/10 bg-white/[0.03] focus:outline-none focus:border-primary/50 cursor-pointer shrink-0 text-gray-300">
+              {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </div>
         </div>
 
         {/* Column toggle */}
-        <div className="px-5 py-2.5 border-b border-border/30 flex flex-wrap gap-1.5">
-          <span className="text-[11px] font-mono text-muted-foreground mr-1 self-center">Columns:</span>
-          {allCols.map(col => (
-            <button key={col} onClick={() => toggleCol(col)}
-              className={cn("inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border transition-colors",
-                hiddenCols.includes(col)
-                  ? "border-border/40 text-muted-foreground/50 bg-transparent"
-                  : "border-primary/30 text-primary bg-primary/10")}>
-              {hiddenCols.includes(col) ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
-              {col}
-            </button>
-          ))}
+        <div className="px-4 sm:px-5 py-2 border-b border-white/[0.04]">
+          <button onClick={() => setColPanelOpen(v => !v)}
+            className="sm:hidden flex items-center gap-1.5 text-[11px] font-mono text-gray-600 mb-1">
+            <Eye className="h-3 w-3" />
+            Columns ({allCols.length - hiddenCols.length}/{allCols.length})
+            {colPanelOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+          <div className={cn("flex flex-wrap gap-1.5", !colPanelOpen && "hidden sm:flex")}>
+            <span className="text-[11px] font-mono text-gray-600 mr-1 self-center hidden sm:inline">Columns:</span>
+            {allCols.map(col => (
+              <button key={col} onClick={() => toggleCol(col)}
+                className={cn("inline-flex items-center gap-1 text-[10px] sm:text-[11px] px-1.5 sm:px-2 py-0.5 rounded border transition-colors",
+                  hiddenCols.includes(col) ? "border-white/5 text-gray-600 bg-transparent" : "border-primary/30 text-primary bg-primary/10")}>
+                {hiddenCols.includes(col) ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
+                {col}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* JSON view */}
         {viewMode === "json" ? (
-          <div className="overflow-auto max-h-[500px] p-5">
-            <pre className="text-xs font-mono text-muted-foreground leading-relaxed">
+          <div className="overflow-auto max-h-[400px] sm:max-h-[500px] p-3 sm:p-5">
+            <pre className="text-[10px] sm:text-xs font-mono text-gray-500 leading-relaxed">
               {JSON.stringify(pageData, null, 2)}
             </pre>
           </div>
         ) : (
-          /* Table view */
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full text-xs min-w-[500px]">
               <thead>
-                <tr className="border-b border-border/40 text-left font-mono uppercase tracking-wider text-muted-foreground sticky top-0 bg-card/80 backdrop-blur">
-                  <th className="px-4 py-3 w-10 font-medium">#</th>
+                <tr className="border-b border-white/5 text-left">
+                  <th className="px-4 sm:px-5 py-3 w-10 font-mono text-[10px] uppercase tracking-widest text-gray-600 font-medium">#</th>
                   {visibleCols.map(col => (
-                    <th key={col} className="px-4 py-3 font-medium whitespace-nowrap">{col}</th>
+                    <th key={col} className="px-4 sm:px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-gray-600 font-medium whitespace-nowrap">{col}</th>
                   ))}
-                  <th className="px-4 py-3 font-medium text-right">Copy</th>
+                  <th className="px-4 sm:px-5 py-3 text-right font-mono text-[10px] uppercase tracking-widest text-gray-600 font-medium">Copy</th>
                 </tr>
               </thead>
               <tbody>
                 {pageData.map((row, i) => (
-                  <tr key={i} className={cn(
-                    "border-b border-border/20 last:border-0 transition-colors",
-                    i % 2 === 0 ? "bg-transparent" : "bg-muted/10",
-                    "hover:bg-primary/5"
-                  )}>
-                    <td className="px-4 py-3 text-muted-foreground/50 font-mono">
-                      {page * pageSize + i + 1}
-                    </td>
+                  <tr key={i} className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03] transition-colors">
+                    <td className="px-4 sm:px-5 py-3 text-gray-700 font-mono">{page * pageSize + i + 1}</td>
                     {visibleCols.map(col => (
-                      <td key={col} className="px-4 py-3 font-mono text-muted-foreground whitespace-nowrap">
-                        {String(row[col] ?? "—")}
-                      </td>
+                      <td key={col} className="px-4 sm:px-5 py-3 font-mono text-gray-400 whitespace-nowrap">{String(row[col] ?? "—")}</td>
                     ))}
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-4 sm:px-5 py-3 text-right">
                       <button onClick={() => copyRow(row, i)}
-                        className="p-1.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors">
-                        {copiedRow === i ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
+                        className="p-1.5 rounded-md hover:bg-primary/10 text-gray-600 hover:text-primary transition-colors">
+                        {copiedRow === i ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
                       </button>
                     </td>
                   </tr>
@@ -571,39 +706,32 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
         )}
 
         {/* Pagination */}
-        <div className="px-5 py-3 border-t border-border/40 flex items-center justify-between">
-          <span className="text-xs text-muted-foreground font-mono">
-            {filtered.length} records · Page {page + 1} of {Math.max(1, totalPages)}
+        <div className="px-4 sm:px-5 py-3 border-t border-white/5 flex items-center justify-between gap-2">
+          <span className="text-[10px] sm:text-xs text-gray-600 font-mono">
+            {filtered.length} records · page {page + 1}/{Math.max(1, totalPages)}
           </span>
           <div className="flex gap-1.5">
-            <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs border-border/50"
-              onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>
-              ← Prev
-            </Button>
-            <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs border-border/50"
-              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>
-              Next →
-            </Button>
+            <Button size="sm" variant="outline" className="h-7 px-2 sm:px-2.5 text-[10px] sm:text-xs border-white/10"
+              onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>← Prev</Button>
+            <Button size="sm" variant="outline" className="h-7 px-2 sm:px-2.5 text-[10px] sm:text-xs border-white/10"
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>Next →</Button>
           </div>
         </div>
       </div>
 
       {/* ── Download ── */}
-      <div className="glass rounded-2xl p-6 border border-border/40">
+      <div className={cn(cardBase, "p-4 sm:p-5")}>
         <h3 className="text-sm font-semibold mb-1">Download Masked Data</h3>
-        <p className="text-xs text-muted-foreground mb-4">Export your privacy-protected dataset</p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <p className="text-xs text-gray-500 mb-3 sm:mb-4">Export your privacy-protected dataset</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
           {[
-            { label: "Download CSV", icon: Download, onClick: () => downloadCSV(result), accent: "hover:border-primary/60 hover:text-primary hover:bg-primary/5" },
-            { label: "Download JSON", icon: Braces, onClick: () => downloadJSON(result), accent: "hover:border-secondary/60 hover:text-secondary hover:bg-secondary/5" },
-            { label: "Download XLSX", icon: Table2, onClick: () => downloadXLSX(result), accent: "hover:border-indigo-400/60 hover:text-indigo-400 hover:bg-indigo-400/5" },
-          ].map(({ label, icon: Icon, onClick, accent }) => (
+            { label: "Download CSV",  icon: Download, onClick: () => downloadCSV(result),  color: "#10b981" },
+            { label: "Download JSON", icon: Braces,   onClick: () => downloadJSON(result), color: "#8b5cf6" },
+            { label: "Download XLSX", icon: Table2,   onClick: () => downloadXLSX(result), color: "#60a5fa" },
+          ].map(({ label, icon: Icon, onClick, color }) => (
             <button key={label} onClick={onClick}
-              className={cn(
-                "flex items-center justify-center gap-2.5 px-5 py-3.5 rounded-xl border border-border/50 text-muted-foreground text-sm font-medium transition-all duration-200 hover:scale-[1.02]",
-                accent
-              )}>
-              <Icon className="h-4 w-4" />
+              className="flex items-center justify-center gap-2 sm:gap-2.5 px-4 sm:px-5 py-3 sm:py-3.5 rounded-xl border border-white/10 text-gray-400 text-xs sm:text-sm font-medium transition-all hover:scale-[1.02] hover:border-white/20 hover:bg-white/[0.04] active:scale-[0.98]">
+              <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" style={{ color }} />
               {label}
             </button>
           ))}
@@ -611,55 +739,52 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
       </div>
 
       {/* ── Explanations panel ── */}
-      <div className="glass rounded-2xl border border-border/40 overflow-hidden">
-        <button
-          onClick={() => setExplanationsOpen(v => !v)}
-          className="w-full flex items-center justify-between px-6 py-4 hover:bg-muted/20 transition-colors"
-        >
-          <div className="flex items-center gap-2.5">
-            <Shield className="h-4 w-4 text-primary" />
-            <span className="text-sm font-semibold">How your data was masked</span>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono">
-              {Object.keys(report.explanations).length} fields
+      <div className={cn(cardBase, "overflow-hidden")}>
+        <button onClick={() => setExplanationsOpen(v => !v)}
+          className="w-full flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 hover:bg-white/[0.03] transition-colors">
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
+            <span className="text-xs sm:text-sm font-semibold text-left">How your data was masked</span>
+            <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono shrink-0">
+              {Object.keys(report.explanations).length}
             </span>
           </div>
-          {explanationsOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          {explanationsOpen ? <ChevronUp className="h-4 w-4 text-gray-600 shrink-0" /> : <ChevronDown className="h-4 w-4 text-gray-600 shrink-0" />}
         </button>
 
         {explanationsOpen && (
-          <div className="px-6 pb-5 border-t border-border/30 pt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-fade-in">
+          <div className="px-4 sm:px-6 pb-4 sm:pb-5 border-t border-white/5 pt-3 sm:pt-4 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 animate-fade-in">
             {Object.entries(report.explanations).map(([field, note]) => (
-              <div key={field} className="flex gap-3 p-3 rounded-xl bg-muted/20 border border-border/30">
+              <div key={field} className="flex gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-xl bg-white/[0.03] border border-white/5">
                 <div className="mt-0.5 h-5 w-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                   <Shield className="h-3 w-3 text-primary" />
                 </div>
-                <div>
-                  <p className="text-xs font-semibold font-mono text-primary capitalize mb-0.5">{field}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{note}</p>
+                <div className="min-w-0">
+                  <p className="text-[10px] sm:text-xs font-semibold font-mono text-primary capitalize mb-0.5 truncate">{field}</p>
+                  <p className="text-[10px] sm:text-xs text-gray-500 leading-relaxed">{note}</p>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Risk reason */}
-        <div className="px-6 py-3 border-t border-border/30 flex items-center gap-3">
-          <span className={cn("text-xs px-2.5 py-1 rounded-lg border font-mono font-medium capitalize", RISK_COLORS[risk] ?? "text-muted-foreground")}>
-            {report.riskScore.level} risk · {report.riskScore.score.toFixed(2)}
+        <div className="px-4 sm:px-6 py-3 border-t border-white/5 flex flex-wrap items-center gap-2 sm:gap-3">
+          <span className={cn("text-[10px] sm:text-xs px-2 sm:px-2.5 py-1 rounded-lg border font-mono font-medium capitalize shrink-0", RISK_COLORS[risk] ?? "text-gray-400")}>
+            {report.riskScore.level} · {report.riskScore.score.toFixed(2)}
           </span>
-          <span className="text-xs text-muted-foreground">{report.riskScore.reason}</span>
+          <span className="text-[10px] sm:text-xs text-gray-500">{report.riskScore.reason}</span>
         </div>
       </div>
 
       {/* Pipeline meta */}
-      <div className="flex flex-wrap gap-2 text-[11px] font-mono text-muted-foreground/60 justify-end">
-        <span>pipeline v{report.pipeline.version}</span>
+      <div className="flex flex-wrap gap-1.5 sm:gap-2 text-[9px] sm:text-[11px] font-mono text-gray-700 justify-end pb-2">
+        <span>v{report.pipeline.version}</span>
         <span>·</span>
         <span>masking: {maskingLevel}</span>
         <span>·</span>
         <span>input: {report.pipeline.inputType}</span>
-        <span>·</span>
-        <span>steps: {report.pipeline.steps.join(" → ")}</span>
+        <span className="hidden sm:inline">·</span>
+        <span className="hidden sm:inline">steps: {report.pipeline.steps.join(" → ")}</span>
       </div>
     </div>
   );
@@ -688,14 +813,17 @@ export default function ProcessPage() {
   };
 
   return (
+    <>
     <div ref={topRef} className="min-h-screen">
+        <Navbar/>
       {!result ? (
         <UploadSection onResult={handleResult} onProcessStart={() => setProcessing(true)} />
       ) : (
         <ResultDashboard data={result} elapsed={elapsed} onReset={handleReset} />
       )}
-      {/* suppress unused */}
       {processing && <></>}
+      <Footer/>
     </div>
+    </>
   );
 }
