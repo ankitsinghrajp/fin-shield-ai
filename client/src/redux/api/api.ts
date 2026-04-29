@@ -31,7 +31,7 @@ const api = createApi({
 
         formData.append("file", file); // actual file
         formData.append("level", level); // masking level
-
+     
         return {
           url: "pipeline/process",
           method: "POST",
@@ -40,6 +40,13 @@ const api = createApi({
         };
       },
     }),
+
+    getDashboardData: builder.query({
+        query: ()=>({
+          url:"pipeline/dashboard",
+          credentials:"include",
+        })
+    })
   }),
 });
 
@@ -49,4 +56,5 @@ export const {
   useLogoutMutation,
   useRefreshTokenMutation,
   useProcessDatasetMutation,
+  useGetDashboardDataQuery,
 } = api;

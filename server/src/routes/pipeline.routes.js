@@ -1,7 +1,8 @@
 import { Router } from "express";
 import multer from "multer";
-import { processPipeline } from "../controllers/pipeline.controller.js";
+import { getDashboardData, processPipeline } from "../controllers/pipeline.controller.js";
 import { upload }          from "../middlewares/upload.middleware.js";
+import {verifyJWT} from "../middlewares/auth.middleware.js";
 
 const router = Router();
 
@@ -29,5 +30,7 @@ const handleUpload = (req, res, next) => {
 };
 
 router.post("/process", handleUpload, processPipeline);
+router.get("/dashboard", verifyJWT, getDashboardData);
+
 
 export default router;

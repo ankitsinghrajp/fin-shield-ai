@@ -55,7 +55,6 @@ const App = () => {
             {/* Public routes */}
             <Route path="/" element={<Index />} />
             <Route path="*" element={<NotFound />} />
-             <Route path="/dashboard" element={<Dashboard />} />
              <Route path="/process" element={<ProcessPage />} />
 
             {/* Guest-only routes — redirect to /dashboard if already logged in */}
@@ -67,6 +66,7 @@ const App = () => {
             {/* Protected routes — redirect to /signin if not logged in */}
             <Route element={<ProtectedRoute user={user} />}>
               <Route path="/processing" element={<Processing />} />
+               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/result/:id" element={<Result />} />
               <Route path="/history" element={<History />} />
             </Route>
