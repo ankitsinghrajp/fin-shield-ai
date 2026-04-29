@@ -6,17 +6,16 @@ const UPLOAD_DIR = "public/uploads";
 const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-const ALLOWED_EXTENSIONS = [".json", ".csv", ".txt", ".pdf", ".docx", ".xlsx"];
+// ✅ Removed ".txt" from allowed extensions
+const ALLOWED_EXTENSIONS = [".json", ".csv", ".xlsx"];
+// ✅ Removed "text/plain" (for .txt) from allowed MIME types
 const ALLOWED_MIMETYPES = [
     "application/json",
-    "text/plain",
     "text/csv",
     "application/csv",
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.ms-excel",
-    "application/octet-stream", // some browsers send this for .docx/.xlsx
+    "application/octet-stream", // some browsers send this for .xlsx
 ];
 
 // Ensure upload dir exists
