@@ -10,6 +10,7 @@ import {
   Layers,
   RefreshCw,
   Clock,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGetDashboardDataQuery } from "@/redux/api/api";
@@ -56,18 +57,26 @@ interface RunRowProps {
     createdAt: string;
   };
   index: number;
+  onClick: () => void;
 }
 
 const maskingLevelColor: Record<string, string> = {
-  low: "text-primary bg-primary/10 border-primary/20",
-  medium: "text-warning bg-warning/10 border-warning/20",
-  high: "text-destructive bg-destructive/10 border-destructive/20",
+  low:    "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
+  medium: "text-amber-400  bg-amber-400/10  border-amber-400/20",
+  high:   "text-red-400    bg-red-400/10    border-red-400/20",
 };
 
-const RunRow = ({ run, index }: RunRowProps) => (
+const RunRow = ({ run, index, onClick }: RunRowProps) => (
   <div
-    className="glass rounded-xl px-5 py-4 grid grid-cols-2 md:grid-cols-5 gap-3 items-center
-               hover:border-primary/30 transition-all duration-300 group"
+    role="button"
+    tabIndex={0}
+    onClick={onClick}
+    onKeyDown={e => e.key === "Enter" && onClick()}
+    className={cn(
+      "glass rounded-xl px-5 py-4 grid grid-cols-2 md:grid-cols-5 gap-3 items-center",
+      "hover:border-primary/40 hover:bg-primary/[0.03] transition-all duration-200 group cursor-pointer",
+      "focus:outline-none focus:ring-2 focus:ring-primary/40"
+    )}
     style={{ animationDelay: `${index * 60}ms` }}
   >
     {/* file */}
@@ -76,10 +85,8 @@ const RunRow = ({ run, index }: RunRowProps) => (
         <FileStack className="h-4 w-4 text-primary" />
       </div>
       <div className="min-w-0">
-        <p className="text-sm font-semibold truncate">{run.fileName}</p>
-        <p className="text-xs text-muted-foreground">
-          {formatBytes(run.fileSize)}
-        </p>
+        <p className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{run.fileName}</p>
+        <p className="text-xs text-muted-foreground">{formatBytes(run.fileSize)}</p>
       </div>
     </div>
 
@@ -91,7 +98,7 @@ const RunRow = ({ run, index }: RunRowProps) => (
 
     {/* pii */}
     <div className="hidden md:block text-center">
-      <p className="text-sm font-bold text-warning">{run.piiDetectedPercentage}%</p>
+      <p className="text-sm font-bold text-amber-400">{run.piiDetectedPercentage}%</p>
       <p className="text-xs text-muted-foreground">PII detected</p>
     </div>
 
@@ -99,7 +106,6 @@ const RunRow = ({ run, index }: RunRowProps) => (
     <div className="hidden md:block text-center">
       <div className="flex flex-col items-center gap-1">
         <p className="text-sm font-bold text-primary">{run.dataUtilityScore.toFixed(1)}</p>
-        {/* mini bar */}
         <div className="w-16 h-1.5 rounded-full bg-muted/40 overflow-hidden">
           <div
             className="h-full rounded-full bg-gradient-to-r from-primary to-secondary transition-all duration-700"
@@ -109,16 +115,20 @@ const RunRow = ({ run, index }: RunRowProps) => (
       </div>
     </div>
 
-    {/* level + time */}
+    {/* level + time + chevron */}
     <div className="flex flex-col items-end gap-1">
-      <span
-        className={cn(
-          "text-xs font-mono px-2 py-0.5 rounded-full border capitalize",
-          maskingLevelColor[run.maskingLevel] ?? "text-muted-foreground bg-muted/10 border-muted/20"
-        )}
-      >
-        {run.maskingLevel}
-      </span>
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "text-xs font-mono px-2 py-0.5 rounded-full border capitalize",
+            maskingLevelColor[run.maskingLevel] ?? "text-muted-foreground bg-muted/10 border-muted/20"
+          )}
+        >
+          {run.maskingLevel}
+        </span>
+        {/* Chevron — visible on hover only on desktop */}
+        <ChevronRight className="h-4 w-4 text-primary opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+      </div>
       <span className="text-xs text-muted-foreground flex items-center gap-1">
         <Clock className="h-3 w-3" />
         {timeAgo(run.createdAt)}
@@ -137,7 +147,7 @@ export default function Dashboard() {
     isFetching,
     refetch,
   } = useGetDashboardDataQuery(undefined, {
-    refetchOnMountOrArgChange: true, // re-fetches every time page mounts / reloads
+    refetchOnMountOrArgChange: true,
   });
 
   const stats = response?.data?.stats;
@@ -259,7 +269,6 @@ export default function Dashboard() {
               </p>
             </div>
           </div>
-          {/* progress bar across the card */}
           <div className="flex-1 min-w-[120px] max-w-xs">
             <div className="flex justify-between text-xs text-muted-foreground mb-1 font-mono">
               <span>utility retained</span>
@@ -280,9 +289,7 @@ export default function Dashboard() {
       <section className="mb-8">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold">New upload</h2>
-          <span className="text-xs font-mono text-muted-foreground">
-            CSV · JSON · XLSX only
-          </span>
+          <span className="text-xs font-mono text-muted-foreground">CSV · JSON · XLSX only</span>
         </div>
         <div
           onClick={() => navigate("/process")}
@@ -306,46 +313,68 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* ── recent activity ── */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Recent activity</h2>
-          <span className="text-xs font-mono text-muted-foreground">
-            {isLoading ? "—" : `${runs.length} run${runs.length !== 1 ? "s" : ""}`}
-          </span>
-        </div>
+   
+     {/* ── recent activity ── */}
+<section>
+  <div className="flex items-center justify-between mb-3">
+    <h2 className="text-lg font-semibold">Recent activity</h2>
+    <div className="flex items-center gap-3">
+      {runs.length > 3 && (
+        <button
+          onClick={() => navigate("/history")}
+          className="text-xs font-mono text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+        >
+          View all {runs.length} runs <ChevronRight className="h-3.5 w-3.5" />
+        </button>
+      )}
+      <span className="text-xs font-mono text-muted-foreground">
+        {isLoading ? "—" : `${Math.min(runs.length, 3)} of ${runs.length}`}
+      </span>
+    </div>
+  </div>
 
-        {isLoading ? (
-          <div className="flex flex-col gap-3">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="glass rounded-xl h-16 animate-pulse"
-                style={{ animationDelay: `${i * 80}ms` }}
-              />
-            ))}
-          </div>
-        ) : runs.length === 0 ? (
-          <div className="glass rounded-2xl p-10 text-center text-muted-foreground text-sm">
-            No runs yet — process a file to see activity here.
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {/* column headers – desktop only */}
-            <div className="hidden md:grid grid-cols-5 px-5 text-xs font-mono uppercase tracking-wider text-muted-foreground/60">
-              <span>File</span>
-              <span className="text-center">Records</span>
-              <span className="text-center">PII</span>
-              <span className="text-center">Utility</span>
-              <span className="text-right">Level / Time</span>
-            </div>
+  {isLoading ? (
+    <div className="flex flex-col gap-3">
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className="glass rounded-xl h-16 animate-pulse"
+          style={{ animationDelay: `${i * 80}ms` }}
+        />
+      ))}
+    </div>
+  ) : runs.length === 0 ? (
+    <div className="glass rounded-2xl p-10 text-center text-muted-foreground text-sm">
+      No runs yet — process a file to see activity here.
+    </div>
+  ) : (
+    <div className="flex flex-col gap-3">
+      {/* column headers – desktop only */}
+      <div className="hidden md:grid grid-cols-5 px-5 text-xs font-mono uppercase tracking-wider text-muted-foreground/50">
+        <span>File</span>
+        <span className="text-center">Records</span>
+        <span className="text-center">PII</span>
+        <span className="text-center">Utility</span>
+        <span className="text-right">Level / Time</span>
+      </div>
 
-            {runs.map((run, i) => (
-              <RunRow key={run._id} run={run} index={i} />
-            ))}
-          </div>
-        )}
-      </section>
+      {runs.slice(0, 3).map((run, i) => (   // ← only change here
+        <RunRow
+          key={run._id}
+          run={run}
+          index={i}
+          onClick={() => navigate(`/dashboard/${run._id}`)}
+        />
+      ))}
+    </div>
+  )}
+
+  {runs.length > 0 && (
+    <p className="text-center text-[11px] font-mono text-muted-foreground/40 mt-4">
+      Click any row to view full run details
+    </p>
+  )}
+</section>
     </DashboardLayout>
   );
 }

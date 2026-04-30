@@ -4,9 +4,7 @@ import { cn } from "@/lib/utils";
 
 const items = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/dashboard#upload", label: "New Upload", icon: Upload },
   { to: "/history", label: "History", icon: History },
-  { to: "/result/f-1042", label: "Latest Report", icon: FileBarChart2 },
 ];
 
 export const Sidebar = () => {

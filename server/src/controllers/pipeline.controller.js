@@ -7,6 +7,8 @@ import { PipelineRun }  from "../models/pipelineRun.model.js";
 import jwt from "jsonwebtoken";
 import { User } from "../models/user.model.js";
 import fs from "fs";
+import mongoose from "mongoose";
+
 
 const VALID_MASKING_LEVELS = ["low", "medium", "high"];
 
@@ -196,4 +198,32 @@ const getDashboardData = asyncHandler(async (req, res) => {
   );
 });
 
-export { processPipeline, getDashboardData };
+/**
+ * GET /api/runs/:runId
+ * Returns the full PipelineRun document (including maskedData & report)
+ * for the authenticated user, by run ID.
+ */
+const getRunById = asyncHandler(async (req, res) => {
+  const { runId } = req.params;
+
+  // Validate ObjectId format
+  if (!mongoose.Types.ObjectId.isValid(runId)) {
+    throw new APIError(400, "Invalid run ID format.");
+  }
+
+  // Find run owned by the requesting user
+  const run = await PipelineRun.findOne({
+    _id: new mongoose.Types.ObjectId(runId),
+    user: req.user._id,                // ensures ownership
+  }).lean();
+
+  if (!run) {
+    throw new APIError(404, "Run not found or you do not have access to it.");
+  }
+
+  return res.status(200).json(
+    new APIResponse(200, { run }, "Run details fetched successfully")
+  );
+});
+
+export { processPipeline, getDashboardData, getRunById };

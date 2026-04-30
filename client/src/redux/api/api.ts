@@ -46,7 +46,15 @@ const api = createApi({
           url:"pipeline/dashboard",
           credentials:"include",
         })
+    }),
+
+    getRunById: builder.query({
+      query: (runId) => ({
+      url: `pipeline/dashboard/${runId}`,
+      credentials: "include",
+   })
     })
+
   }),
 });
 
@@ -57,4 +65,5 @@ export const {
   useRefreshTokenMutation,
   useProcessDatasetMutation,
   useGetDashboardDataQuery,
+  useGetRunByIdQuery,
 } = api;

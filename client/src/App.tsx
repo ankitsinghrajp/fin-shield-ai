@@ -18,6 +18,7 @@ import { userExists, userNotExists } from "./redux/reducers/auth.ts";
 import { useEffect } from "react";
 import ProtectedRoute from "./components/auth/ProtectedRoute.tsx";
 import ProcessPage from "./pages/ProcessPage.tsx";
+import RunDetailPage from "./pages/RunDetailPage.tsx";
 
 const queryClient = new QueryClient();
 
@@ -67,6 +68,7 @@ const App = () => {
             <Route element={<ProtectedRoute user={user} />}>
               <Route path="/processing" element={<Processing />} />
                <Route path="/dashboard" element={<Dashboard />} />
+               <Route path="/dashboard/:runId" element={<RunDetailPage/>} />
               <Route path="/result/:id" element={<Result />} />
               <Route path="/history" element={<History />} />
             </Route>
