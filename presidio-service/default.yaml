@@ -1,0 +1,18 @@
+# Presidio Analyzer configuration (minimal working default)
+recognizers:
+  # Enable all built-in recognizers (English)
+  - name: "en_built_in"
+    type: "built_in"
+    properties:
+      language: "en"
+
+ner_strength: 1.0
+
+# Global settings
+default_score_threshold: 0.7
+
+# Language models
+nlp_engine_name: "spacy"
+models:
+  - model_path: "en_core_web_lg"
+    lang: "en"

@@ -7,7 +7,7 @@ const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 // ✅ Removed ".txt" from allowed extensions
-const ALLOWED_EXTENSIONS = [".json", ".csv", ".xlsx"];
+const ALLOWED_EXTENSIONS = [".json", ".csv", ".xlsx",".txt"];
 // ✅ Removed "text/plain" (for .txt) from allowed MIME types
 const ALLOWED_MIMETYPES = [
     "application/json",

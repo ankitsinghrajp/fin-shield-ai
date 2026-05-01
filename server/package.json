@@ -11,6 +11,7 @@
     "dev": "nodemon src/index.js"
   },
   "dependencies": {
+    "axios": "^1.15.2",
     "bcrypt": "^6.0.0",
     "compromise": "^14.15.0",
     "cookie-parser": "^1.4.7",

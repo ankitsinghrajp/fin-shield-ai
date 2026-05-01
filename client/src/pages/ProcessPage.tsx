@@ -5,7 +5,7 @@ import {
   Download, Shield, Database, BarChart3, AlertTriangle,
   Search, Copy, Check, Table2, Braces, Clock, Eye, EyeOff,
   Zap, GitBranch, CheckCircle, LayoutDashboard, ArrowRight,
-  Sparkles, Lock,
+  Sparkles, Lock, FileType2, FileCode2,
 } from "lucide-react";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
@@ -43,6 +43,40 @@ interface PipelineData {
 type MaskingLevel = "low" | "medium" | "high";
 type ViewMode = "table" | "json";
 
+// ─── Supported file types ─────────────────────────────────────────────────────
+
+const SUPPORTED_EXTENSIONS = [".csv", ".json", ".xlsx", ".txt", ".docx"] as const;
+type SupportedExt = typeof SUPPORTED_EXTENSIONS[number];
+
+const FILE_TYPE_META: Record<SupportedExt, { label: string; icon: string; color: string; desc: string }> = {
+  ".csv":  { label: "CSV",  icon: "📊", color: "#10b981", desc: "Comma-separated values" },
+  ".json": { label: "JSON", icon: "🔧", color: "#8b5cf6", desc: "Structured JSON data" },
+  ".xlsx": { label: "XLSX", icon: "📗", color: "#22c55e", desc: "Excel spreadsheet" },
+  ".txt":  { label: "TXT",  icon: "📄", color: "#60a5fa", desc: "Plain text / log file" },
+  ".docx": { label: "DOCX", icon: "📝", color: "#f97316", desc: "Word document" },
+};
+
+function getFileExt(f: File): SupportedExt | null {
+  const ext = ("." + f.name.split(".").pop()?.toLowerCase()) as SupportedExt;
+  return SUPPORTED_EXTENSIONS.includes(ext) ? ext : null;
+}
+
+function isValidFile(f: File) {
+  return getFileExt(f) !== null;
+}
+
+function getFileIcon(filename: string) {
+  const ext = ("." + filename.split(".").pop()?.toLowerCase()) as SupportedExt;
+  return FILE_TYPE_META[ext]?.icon ?? "📁";
+}
+
+function getFileColor(filename: string) {
+  const ext = ("." + filename.split(".").pop()?.toLowerCase()) as SupportedExt;
+  return FILE_TYPE_META[ext]?.color ?? "#6b7280";
+}
+
+// ─── Masking config ───────────────────────────────────────────────────────────
+
 const MASKING_INFO: Record<MaskingLevel, { label: string; desc: string; color: string }> = {
   low:    { label: "Low",    desc: "Minimal masking, most fields retained",          color: "text-emerald-400 border-emerald-400/30 bg-emerald-400/10" },
   medium: { label: "Medium", desc: "Balanced — partial masking on sensitive fields", color: "text-amber-400 border-amber-400/30 bg-amber-400/10" },
@@ -56,11 +90,6 @@ const RISK_COLORS: Record<string, string> = {
 };
 
 const DONUT_COLORS = ["#f97316", "#facc15", "#fb7185", "#60a5fa"];
-
-function isValidFile(f: File) {
-  const ext = "." + f.name.split(".").pop()?.toLowerCase();
-  return [".csv", ".json", ".xlsx"].includes(ext);
-}
 
 // ─── Download helpers ─────────────────────────────────────────────────────────
 
@@ -78,6 +107,15 @@ function downloadJSON(data: Record<string, unknown>[]) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "masked_data.json"; a.click();
 }
+function downloadTXT(data: Record<string, unknown>[]) {
+  // For log/text results, render each record's content field on its own line
+  const lines = data.map(r => {
+    if ("content" in r) return String(r.content ?? "");
+    return Object.entries(r).map(([k, v]) => `${k}: ${v}`).join(" | ");
+  });
+  const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "masked_data.txt"; a.click();
+}
 function downloadXLSX(data: Record<string, unknown>[]) {
   downloadCSV(data);
   toast("XLSX download: install SheetJS for native XLSX support", { icon: "ℹ️" });
@@ -85,7 +123,11 @@ function downloadXLSX(data: Record<string, unknown>[]) {
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
 
-const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
+const CustomTooltip = ({ active, payload, label }: {
+  active?: boolean;
+  payload?: { name: string; value: number; color: string }[];
+  label?: string;
+}) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{ background: "#0f1117", border: "1px solid #1e2530", borderRadius: 8, padding: "8px 14px", fontSize: 12 }}>
@@ -123,7 +165,9 @@ function QualityGauge({ score, label }: { score: number; label: string }) {
 
 // ─── TypeBar ─────────────────────────────────────────────────────────────────
 
-function TypeBar({ label, count, max, color, icon }: { label: string; count: number; max: number; color: string; icon: string }) {
+function TypeBar({ label, count, max, color, icon }: {
+  label: string; count: number; max: number; color: string; icon: string;
+}) {
   const pct = max > 0 ? (count / max) * 100 : 0;
   return (
     <div className="p-4 rounded-xl border border-white/5 bg-white/[0.03]">
@@ -139,6 +183,25 @@ function TypeBar({ label, count, max, color, icon }: { label: string; count: num
       </div>
       <p className="text-[10px] text-gray-600 mt-1 font-mono">{pct.toFixed(0)}% of max</p>
     </div>
+  );
+}
+
+// ─── File type badge pill ─────────────────────────────────────────────────────
+
+function FileTypeBadge({ ext }: { ext: SupportedExt }) {
+  const meta = FILE_TYPE_META[ext];
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] sm:text-xs px-2.5 py-1 rounded-md border font-mono font-medium"
+      style={{
+        color: meta.color,
+        borderColor: `${meta.color}40`,
+        background: `${meta.color}12`,
+      }}
+    >
+      <span>{meta.icon}</span>
+      {meta.label}
+    </span>
   );
 }
 
@@ -164,14 +227,20 @@ function UploadSection({
     e.preventDefault(); setDragOver(false);
     const f = e.dataTransfer.files?.[0];
     if (!f) return;
-    if (!isValidFile(f)) { toast.error("Only CSV, JSON, XLSX accepted"); return; }
+    if (!isValidFile(f)) {
+      toast.error("Supported: CSV, JSON, XLSX, TXT, DOCX");
+      return;
+    }
     setFile(f);
   }, []);
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (!isValidFile(f)) { toast.error("Only CSV, JSON, XLSX accepted"); return; }
+    if (!isValidFile(f)) {
+      toast.error("Supported: CSV, JSON, XLSX, TXT, DOCX");
+      return;
+    }
     setFile(f);
   };
 
@@ -191,6 +260,13 @@ function UploadSection({
     }
   };
 
+  const fileExt = file ? getFileExt(file) : null;
+  const fileColor = file ? getFileColor(file.name) : "#6b7280";
+  const fileIcon = file ? getFileIcon(file.name) : "📁";
+
+  // Detect if file is unstructured (txt / docx) for a helpful hint
+  const isUnstructuredType = fileExt === ".txt" || fileExt === ".docx";
+
   return (
     <section className="min-h-[100dvh] flex flex-col items-center justify-center px-4 py-12 sm:py-20 relative">
       {/* ambient glow */}
@@ -201,14 +277,12 @@ function UploadSection({
 
       <div className="relative z-10 w-full max-w-2xl flex flex-col items-center text-center">
 
-        {/* top badge row — pill + dashboard button */}
+        {/* top badge row */}
         <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-6 sm:mb-8 w-full">
           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary text-[10px] sm:text-xs font-mono">
             <Lock className="h-3 w-3 shrink-0" />
             <span>Privacy-first · In-memory · Zero storage</span>
           </div>
-
-          {/* ── Dashboard shortcut button ── */}
           <button
             onClick={() => navigate("/dashboard")}
             className={cn(
@@ -254,13 +328,21 @@ function UploadSection({
               </div>
               <h3 className="text-base sm:text-xl font-semibold mb-1">Drop your dataset here</h3>
               <p className="text-xs sm:text-sm text-muted-foreground mb-1">or click to browse your files</p>
-              <div className="flex gap-2 mt-3 mb-6">
-                {["CSV", "JSON", "XLSX"].map(t => (
-                  <span key={t} className="text-[10px] sm:text-xs px-2.5 py-1 rounded-md border border-border/50 bg-muted/30 font-mono text-muted-foreground">{t}</span>
+
+              {/* ── Supported format badges ── */}
+              <div className="flex flex-wrap justify-center gap-2 mt-3 mb-6">
+                {SUPPORTED_EXTENSIONS.map(ext => (
+                  <FileTypeBadge key={ext} ext={ext} />
                 ))}
               </div>
+
               <label>
-                <input type="file" className="hidden" onChange={onPick} accept=".csv,.json,.xlsx" />
+                <input
+                  type="file"
+                  className="hidden"
+                  onChange={onPick}
+                  accept=".csv,.json,.xlsx,.txt,.docx"
+                />
                 <span className="inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold px-5 sm:px-7 py-2.5 sm:py-3 bg-gradient-primary text-primary-foreground btn-glow cursor-pointer shadow-glow-primary transition-transform hover:scale-105 active:scale-95">
                   <Upload className="h-4 w-4" /> Browse files
                 </span>
@@ -269,20 +351,57 @@ function UploadSection({
           ) : (
             <div className="p-4 sm:p-6 flex flex-col gap-3 sm:gap-4">
               {/* file info */}
-              <div className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl bg-primary/5 border border-primary/20">
-                <div className="p-2 sm:p-3 rounded-xl bg-primary/10 border border-primary/30 shrink-0">
-                  <FileText className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+              <div
+                className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl border"
+                style={{ background: `${fileColor}0d`, borderColor: `${fileColor}30` }}
+              >
+                <div
+                  className="p-2 sm:p-3 rounded-xl border shrink-0 text-2xl flex items-center justify-center w-12 h-12"
+                  style={{ background: `${fileColor}1a`, borderColor: `${fileColor}40` }}
+                >
+                  {fileIcon}
                 </div>
                 <div className="flex-1 min-w-0 text-left">
                   <p className="font-semibold truncate text-sm sm:text-base">{file.name}</p>
-                  <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB · {file.name.split(".").pop()?.toUpperCase()} · Ready to process
-                  </p>
+                  <div className="flex items-center flex-wrap gap-2 mt-1">
+                    <span className="text-[10px] sm:text-xs text-muted-foreground">
+                      {(file.size / 1024).toFixed(1)} KB
+                    </span>
+                    {fileExt && (
+                      <FileTypeBadge ext={fileExt} />
+                    )}
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded-md border font-mono"
+                      style={{ color: "#10b981", borderColor: "#10b98130", background: "#10b98112" }}
+                    >
+                      Ready to process
+                    </span>
+                  </div>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => setFile(null)} disabled={isLoading} className="shrink-0 h-8 w-8 sm:h-10 sm:w-10 hover:bg-destructive/10 hover:text-destructive transition-colors">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setFile(null)}
+                  disabled={isLoading}
+                  className="shrink-0 h-8 w-8 sm:h-10 sm:w-10 hover:bg-destructive/10 hover:text-destructive transition-colors"
+                >
                   <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </Button>
               </div>
+
+              {/* Hint for unstructured file types */}
+              {isUnstructuredType && (
+                <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl border border-amber-400/20 bg-amber-400/5 text-left">
+                  <FileType2 className="h-3.5 w-3.5 text-amber-400 shrink-0 mt-0.5" />
+                  <p className="text-[10px] sm:text-xs text-amber-300/80 leading-relaxed">
+                    <span className="font-semibold text-amber-400">
+                      {fileExt === ".docx" ? "Word document" : "Plain text / log file"}
+                    </span>
+                    {" "}— processed line-by-line using the Presidio + regex pipeline.
+                    PII detected inline; output shown per line in masked data preview.
+                  </p>
+                </div>
+              )}
 
               {/* controls */}
               <div className="flex flex-col gap-2 sm:flex-row sm:gap-3 sm:items-center">
@@ -359,7 +478,7 @@ function UploadSection({
           </div>
         )}
 
-        {/* feature hints below drop zone */}
+        {/* feature hints */}
         {!file && !isLoading && (
           <div className="mt-8 grid grid-cols-3 gap-3 w-full text-center">
             {[
@@ -397,6 +516,18 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
   const { report, result, runId, maskingLevel } = data;
   const risk = report.riskScore.level.toLowerCase();
   const allCols = result.length > 0 ? Object.keys(result[0]) : [];
+
+  // Detect if result is line-based (TXT / DOCX output from unstructured pipeline)
+  const isLineBased = result.length > 0 && "line" in result[0] && "content" in result[0];
+
+  // Input type badge
+  const inputType = report.pipeline?.inputType ?? "tabular";
+  const inputTypeLabel = inputType === "log" ? "TXT / LOG" : inputType === "text" ? "Plain Text" : inputType.toUpperCase();
+  const inputTypeColor =
+    inputType === "log"     ? "#60a5fa" :
+    inputType === "text"    ? "#f97316" :
+    inputType === "tabular" ? "#10b981" :
+    "#8b5cf6";
 
   const filtered = useMemo(() => {
     if (!search.trim()) return result;
@@ -466,6 +597,16 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
 
   const cardBase = "rounded-2xl border border-white/5 bg-[#0d1117]/80 backdrop-blur";
 
+  // ── Download options: always show CSV/JSON; add TXT download for line-based results
+  const downloadOptions = [
+    { label: "Download CSV",  icon: Download,   onClick: () => downloadCSV(result),  color: "#10b981" },
+    { label: "Download JSON", icon: Braces,     onClick: () => downloadJSON(result), color: "#8b5cf6" },
+    ...(isLineBased
+      ? [{ label: "Download TXT", icon: FileCode2, onClick: () => downloadTXT(result),  color: "#60a5fa" }]
+      : [{ label: "Download XLSX", icon: Table2,  onClick: () => downloadXLSX(result), color: "#60a5fa" }]
+    ),
+  ];
+
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 py-6 sm:py-10 space-y-5 sm:space-y-6 animate-fade-in-up">
 
@@ -479,14 +620,19 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
             <span className="text-[10px] sm:text-xs font-mono text-gray-500 flex items-center gap-1">
               <Clock className="h-3 w-3 shrink-0" /> {elapsed.toFixed(2)}s
             </span>
+            {/* Input type badge */}
+            <span
+              className="text-[10px] px-2 py-0.5 rounded-md border font-mono font-medium"
+              style={{ color: inputTypeColor, borderColor: `${inputTypeColor}40`, background: `${inputTypeColor}12` }}
+            >
+              {inputTypeLabel}
+            </span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Pipeline Results</h2>
           <p className="text-xs text-gray-500 mt-0.5">Your data has been scanned and masked</p>
         </div>
 
-        {/* ── CTA buttons ── */}
         <div className="flex flex-col xs:flex-row sm:flex-col lg:flex-row items-stretch xs:items-center gap-2 self-start shrink-0">
-          {/* Dashboard button — primary CTA */}
           <button
             onClick={() => navigate("/dashboard")}
             className={cn(
@@ -500,7 +646,6 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
             <Sparkles className="h-3.5 w-3.5 shrink-0 opacity-70" />
           </button>
 
-          {/* Process another — secondary */}
           <Button
             variant="outline"
             size="sm"
@@ -512,6 +657,20 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
           </Button>
         </div>
       </div>
+
+      {/* ── Unstructured pipeline notice ── */}
+      {(inputType === "log" || inputType === "text") && (
+        <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-blue-400/20 bg-blue-400/5">
+          <FileType2 className="h-4 w-4 text-blue-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-semibold text-blue-300">Unstructured text pipeline</p>
+            <p className="text-[11px] text-blue-300/60 mt-0.5 leading-relaxed">
+              This file was processed line-by-line using Presidio + regex. PII spans were detected
+              and masked inline. Results are shown per-line in the preview below.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── ROW 1: Area chart + Quality Gauge ── */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
@@ -537,7 +696,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
               <YAxis tick={{ fontSize: 10, fill: "#4b5563" }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
               <Area type="monotone" dataKey="total" name="Total Fields" stroke="#10b981" strokeWidth={2} fill="url(#totalGrad)" dot={false} activeDot={{ r: 4, fill: "#10b981" }} />
-              <Area type="monotone" dataKey="pii" name="PII Fields" stroke="#f97316" strokeWidth={2} fill="url(#piiGrad)" dot={false} activeDot={{ r: 4, fill: "#f97316" }} />
+              <Area type="monotone" dataKey="pii"   name="PII Fields"   stroke="#f97316" strokeWidth={2} fill="url(#piiGrad)"  dot={false} activeDot={{ r: 4, fill: "#f97316" }} />
               <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: 11, paddingTop: 12, color: "#9ca3af" }} />
             </AreaChart>
           </ResponsiveContainer>
@@ -553,7 +712,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
           </div>
           <div className="grid grid-cols-2 gap-2 mt-4">
             {[
-              { value: report.records.toLocaleString(), label: "Records",   color: "text-white" },
+              { value: report.records.toLocaleString(), label: "Records",    color: "text-white" },
               { value: String(report.piiFields),        label: "PII Fields", color: "text-orange-400" },
               { value: `${piiPercent.toFixed(1)}%`,    label: "PII %",      color: "text-red-400" },
               { value: `${utilityScore.toFixed(1)}%`,  label: "Utility %",  color: "text-emerald-400" },
@@ -643,7 +802,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
         </div>
       </div>
 
-      {/* ── ROW 4: Masked Data Table ── */}
+      {/* ── ROW 4: Masked Data Preview ── */}
       <div className={cn(cardBase, "overflow-hidden")}>
         {/* Toolbar */}
         <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-white/5 flex flex-col gap-2 sm:gap-3">
@@ -651,6 +810,12 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
             <div className="flex items-center gap-2">
               <Database className="h-4 w-4 text-emerald-400" />
               <h3 className="text-sm font-semibold">Masked Data Preview</h3>
+              {/* Line-based badge */}
+              {isLineBased && (
+                <span className="text-[10px] px-2 py-0.5 rounded-md border border-blue-400/30 bg-blue-400/10 text-blue-400 font-mono">
+                  line-by-line
+                </span>
+              )}
             </div>
             <div className="flex rounded-lg border border-white/10 overflow-hidden">
               <button
@@ -692,35 +857,37 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
           </div>
         </div>
 
-        {/* Column toggle */}
-        <div className="px-4 sm:px-5 py-2 border-b border-white/[0.04]">
-          <button
-            onClick={() => setColPanelOpen(v => !v)}
-            className="sm:hidden flex items-center gap-1.5 text-[11px] font-mono text-gray-600 mb-1"
-          >
-            <Eye className="h-3 w-3" />
-            Columns ({allCols.length - hiddenCols.length}/{allCols.length})
-            {colPanelOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          </button>
-          <div className={cn("flex flex-wrap gap-1.5", !colPanelOpen && "hidden sm:flex")}>
-            <span className="text-[11px] font-mono text-gray-600 mr-1 self-center hidden sm:inline">Columns:</span>
-            {allCols.map(col => (
-              <button
-                key={col}
-                onClick={() => toggleCol(col)}
-                className={cn(
-                  "inline-flex items-center gap-1 text-[10px] sm:text-[11px] px-1.5 sm:px-2 py-0.5 rounded border transition-colors",
-                  hiddenCols.includes(col)
-                    ? "border-white/5 text-gray-600 bg-transparent"
-                    : "border-primary/30 text-primary bg-primary/10"
-                )}
-              >
-                {hiddenCols.includes(col) ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
-                {col}
-              </button>
-            ))}
+        {/* Column toggle — only for non-line-based (has many varied columns) */}
+        {!isLineBased && (
+          <div className="px-4 sm:px-5 py-2 border-b border-white/[0.04]">
+            <button
+              onClick={() => setColPanelOpen(v => !v)}
+              className="sm:hidden flex items-center gap-1.5 text-[11px] font-mono text-gray-600 mb-1"
+            >
+              <Eye className="h-3 w-3" />
+              Columns ({allCols.length - hiddenCols.length}/{allCols.length})
+              {colPanelOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </button>
+            <div className={cn("flex flex-wrap gap-1.5", !colPanelOpen && "hidden sm:flex")}>
+              <span className="text-[11px] font-mono text-gray-600 mr-1 self-center hidden sm:inline">Columns:</span>
+              {allCols.map(col => (
+                <button
+                  key={col}
+                  onClick={() => toggleCol(col)}
+                  className={cn(
+                    "inline-flex items-center gap-1 text-[10px] sm:text-[11px] px-1.5 sm:px-2 py-0.5 rounded border transition-colors",
+                    hiddenCols.includes(col)
+                      ? "border-white/5 text-gray-600 bg-transparent"
+                      : "border-primary/30 text-primary bg-primary/10"
+                  )}
+                >
+                  {hiddenCols.includes(col) ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
+                  {col}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {viewMode === "json" ? (
           <div className="overflow-auto max-h-[400px] sm:max-h-[500px] p-3 sm:p-5">
@@ -728,7 +895,60 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
               {JSON.stringify(pageData, null, 2)}
             </pre>
           </div>
+        ) : isLineBased ? (
+          /* ── Line-based view for TXT / DOCX output ── */
+          <div className="overflow-auto max-h-[500px]">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-white/5 text-left">
+                  <th className="px-4 sm:px-5 py-3 w-14 font-mono text-[10px] uppercase tracking-widest text-gray-600 font-medium">Line</th>
+                  <th className="px-4 sm:px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-gray-600 font-medium">Content</th>
+                  <th className="px-4 sm:px-5 py-3 w-12 text-right font-mono text-[10px] uppercase tracking-widest text-gray-600 font-medium">Copy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageData.map((row, i) => {
+                  const lineNum = Number(row.line ?? (page * pageSize + i + 1));
+                  const content = String(row.content ?? "");
+                  // Highlight rows that contain masked tokens
+                  const hasMasked = /\[REDACTED\]|\[MASKED\]|\[ADDRESS REDACTED\]|\*+|XXXX/.test(content);
+                  return (
+                    <tr
+                      key={i}
+                      className={cn(
+                        "border-b border-white/[0.04] last:border-0 transition-colors",
+                        hasMasked ? "hover:bg-amber-400/5" : "hover:bg-white/[0.03]"
+                      )}
+                    >
+                      <td className="px-4 sm:px-5 py-3 font-mono text-gray-600 text-[10px] align-top tabular-nums">
+                        {lineNum}
+                      </td>
+                      <td className="px-4 sm:px-5 py-3 font-mono text-gray-300 break-all leading-relaxed">
+                        {/* Highlight masked tokens visually */}
+                        {content.split(/(\[REDACTED\]|\[MASKED\]|\[ADDRESS REDACTED\])/g).map((part, pi) =>
+                          /^\[/.test(part) ? (
+                            <span key={pi} className="px-1 py-0.5 rounded text-[10px] text-amber-400 bg-amber-400/10 border border-amber-400/20 mx-0.5">{part}</span>
+                          ) : (
+                            <span key={pi}>{part}</span>
+                          )
+                        )}
+                      </td>
+                      <td className="px-4 sm:px-5 py-3 text-right align-top">
+                        <button
+                          onClick={() => copyRow(row, i)}
+                          className="p-1.5 rounded-md hover:bg-primary/10 text-gray-600 hover:text-primary transition-colors"
+                        >
+                          {copiedRow === i ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
+          /* ── Standard tabular view ── */
           <div className="overflow-x-auto">
             <table className="w-full text-xs min-w-[500px]">
               <thead>
@@ -781,11 +1001,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
         <h3 className="text-sm font-semibold mb-1">Download Masked Data</h3>
         <p className="text-xs text-gray-500 mb-3 sm:mb-4">Export your privacy-protected dataset</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
-          {[
-            { label: "Download CSV",  icon: Download, onClick: () => downloadCSV(result),  color: "#10b981" },
-            { label: "Download JSON", icon: Braces,   onClick: () => downloadJSON(result), color: "#8b5cf6" },
-            { label: "Download XLSX", icon: Table2,   onClick: () => downloadXLSX(result), color: "#60a5fa" },
-          ].map(({ label, icon: Icon, onClick, color }) => (
+          {downloadOptions.map(({ label, icon: Icon, onClick, color }) => (
             <button
               key={label}
               onClick={onClick}

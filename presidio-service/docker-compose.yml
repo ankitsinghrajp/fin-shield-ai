@@ -1,0 +1,7 @@
+version: "3.8"
+services:
+  presidio-analyzer:
+    image: mcr.microsoft.com/presidio-analyzer
+    ports:
+      - "5001:3000"            # container port 3000 → host 5001
+    restart: unless-stopped
