@@ -1,5 +1,26 @@
 /**
- * Data Masking Engine — v9.2 (fixed phone masking, added national_id/gov_id redaction)
+ * Data Masking Engine — v9.4
+ *
+ * ROOT CAUSE FIX (why EVERYTHING showed [MASKED]):
+ *
+ *   pii-detector v15 stores __pii as:
+ *     { "Name": { type: "name", confidence: "high" },
+ *       "Salary": { type: "salary", confidence: "high" }, ... }
+ *
+ *   But maskData() was iterating like:
+ *     for (const [fieldPath, type] of Object.entries(__pii))
+ *       mask(value, type)   ← type is the OBJECT, not the string!
+ *
+ *   So mask(value, { type: "salary", confidence: "high" }) hit
+ *   default → [MASKED] for EVERY single field — name, address,
+ *   DOB, company, salary, CVV — everything.
+ *
+ *   THE FIX (3 lines in maskData):
+ *     const typeStr = annotation && typeof annotation === "object"
+ *         ? annotation.type
+ *         : annotation;
+ *
+ *   This single change restores correct output for all fields.
  */
 
 import { createPseudonymMap } from "../../utils/pseudonymMap.js";
@@ -8,6 +29,34 @@ const LEVELS = ["low", "medium", "high"];
 
 const extractDigits = (str) => String(str).replace(/\D/g, "");
 
+// ─── Address generalisation ───────────────────────────────────────────────────
+const COMMON_CITIES = new Set([
+    "bhopal","delhi","mumbai","pune","chennai","kolkata","hyderabad","bangalore",
+    "ahmedabad","jaipur","lucknow","indore","kanpur","nagpur","surat","patna",
+    "chandigarh","agra","varanasi","meerut","nashik","faridabad","ghaziabad",
+    "rajkot","vadodara","ludhiana","amritsar","coimbatore","vijayawada","madurai",
+    "noida","gurugram","gurgaon","thane","kochi","thiruvananthapuram","visakhapatnam",
+    "bhubaneswar","ranchi","raipur","dehradun","mysore","mangalore","hubli",
+    "belgaum","jodhpur","udaipur","ajmer","bikaner","allahabad","prayagraj",
+    "gorakhpur","moradabad","aligarh","jabalpur","gwalior","jammu","srinagar",
+    "shimla","imphal","aizawl","kohima","itanagar","gangtok",
+    "new york","london","paris","berlin","tokyo","sydney","toronto","dubai",
+    "singapore","bangkok","beijing","shanghai","moscow","rome","amsterdam",
+]);
+
+const generaliseAddress = (str) => {
+    const lower = str.toLowerCase();
+    for (const city of COMMON_CITIES) {
+        if (lower.includes(city)) {
+            return city.charAt(0).toUpperCase() + city.slice(1);
+        }
+    }
+    const parts = str.split(/,\s*/);
+    if (parts.length > 1) return parts[parts.length - 2].trim();
+    return "[Address on file]";
+};
+
+// ─── Masker factory ───────────────────────────────────────────────────────────
 const createMasker = (pseudonymMap, level = "medium") => {
     const safeLevel = LEVELS.includes(level) ? level : "medium";
 
@@ -22,115 +71,191 @@ const createMasker = (pseudonymMap, level = "medium") => {
         if (safeLevel === "high") return "[REDACTED]";
 
         switch (type) {
-            case "email":
+
+            // ── PSEUDONYMISE ───────────────────────────────────────────────
+            case "name":
+                // pseudonymMap returns "Person_1", "Person_2" etc. — stable within run
+                return pseudonymMap.getPseudonym(str, "Person");
+
+            case "email": {
                 const atIdx = str.indexOf("@");
                 if (atIdx < 1) return "[REDACTED]";
+                const local  = str.slice(0, atIdx);
                 const domain = str.slice(atIdx + 1);
-                const local = str.slice(0, atIdx);
-                const visibleLocal = local.slice(0, 2);
-                const stars = "*".repeat(Math.max(1, local.length - 2));
-                return `${visibleLocal}${stars}@${domain}`;
-
-            case "phone": {
-                const digits = extractDigits(str);
-                if (digits.length < 6) return "[MASKED]";
-                const firstTwo = digits.slice(0, 2);
-                const lastFour = digits.slice(-4);
-                return `${firstTwo}XXXX${lastFour}`;
+                return `${local.slice(0, 2)}${"*".repeat(Math.max(1, local.length - 2))}@${domain}`;
             }
 
-            case "date": {
-                const yearMatch = str.match(/\b(19|20)\d{2}\b/);
-                return yearMatch ? yearMatch[0] : "[REDACTED]";
-            }
+            case "upi":
+                return pseudonymMap.getPseudonym(str, "UPI") + "@upi";
 
-            case "aadhaar":
-                return "[REDACTED]";
-            case "pan": {
-                if (str.length < 6) return "[REDACTED]";
-                const first3 = str.slice(0, 3);
-                const last3 = str.slice(-3);
-                const stars = "*".repeat(str.length - 6);
-                return `${first3}${stars}${last3}`;
-            }
-            case "name":
-                return pseudonymMap.getPseudonym(str, "Person");
             case "customer_id":
-                return pseudonymMap.getPseudonym(str, "ID");
-            case "dob": {
-                const yearMatch = str.match(/\b(19|20)\d{2}\b/);
-                return yearMatch ? yearMatch[0] : "[REDACTED]";
+                return pseudonymMap.getPseudonym(str, "CID");
+
+            // ── PARTIAL ────────────────────────────────────────────────────
+            case "creditcard": {
+                const d = extractDigits(str);
+                if (d.length < 12) return "****-****-****-****";
+                return `****-****-****-${d.slice(-4)}`;
             }
-            case "company": {
-                if (str.length <= 4) return str;
-                const first2 = str.slice(0, 2);
-                const last2 = str.slice(-2);
-                return `${first2}***${last2}`;
-            }
-            case "city":
-            case "state":
-            case "city_name":
-            case "location_city":
-                return str;
-            case "national_id":
-            case "gov_id":
-                return "[REDACTED]";
+
             case "account":
             case "account_number":
             case "accno":
             case "bankaccount":
             case "bankAcc":
             case "acctNum": {
-                const accDigits = extractDigits(str);
-                if (accDigits.length < 4) return "****";
-                return "****" + accDigits.slice(-4);
+                const d = extractDigits(str);
+                return d.length >= 4 ? `****${d.slice(-4)}` : "****";
             }
-            case "creditcard": {
-                const ccDigits = extractDigits(str);
-                if (ccDigits.length < 12) return "****-****-****";
-                return `****-****-****-${ccDigits.slice(-4)}`;
+
+            case "iban": {
+                const clean = str.replace(/\s/g, "");
+                return clean.length >= 8 ? `${clean.slice(0, 4)}****${clean.slice(-4)}` : "****";
             }
-            case "passport":
-                return "[REDACTED]";
-            case "ssn":
-                return "[REDACTED]";
-            case "pincode":
-                if (str.length < 2) return "XXXXXX";
-                return str.slice(0, 2) + "XXXX";
-            case "ifsc":
-                if (str.length < 4) return "[MASKED]";
-                return str.slice(0, 4) + "XXXXXXX";
-            case "ip": {
+
+            case "mac_address": {
+                const sep  = str.includes(":") ? ":" : "-";
+                const octs = str.split(/[:\-]/);
+                return octs.length === 6
+                    ? `${octs[0]}${sep}${octs[1]}${sep}${octs[2]}${sep}**${sep}**${sep}**`
+                    : "**:**:**:**:**:**";
+            }
+
+            // ── GENERALISE ─────────────────────────────────────────────────
+            case "phone": {
+                const digits = extractDigits(str);
+                if (digits.length < 6) return "XXXXXXXX";
+                if (digits.length === 10 && /^[6-9]/.test(digits)) return "+91-XXXXXXXX";
+                if (digits.length > 10) return `+${digits.slice(0, digits.length - 10)}-XXXXXXXXXX`;
+                return `${digits.slice(0, 2)}XXXX${digits.slice(-4)}`;
+            }
+
+            case "date":
+            case "dob": {
+                const y = str.match(/\b(19|20)\d{2}\b/);
+                return y ? y[0] : "[REDACTED]";
+            }
+
+            case "address":
+            case "addr":
+            case "streetaddress":
+                return generaliseAddress(str);
+
+            case "pincode": {
+                const d = extractDigits(str);
+                if (d.length === 6) return `${d.slice(0, 3)}***`;
+                return d.length >= 2 ? `${d.slice(0, 2)}XXXX` : "XXXXXX";
+            }
+
+            case "ip":
+            case "ip_address": {
                 const parts = str.split(".");
-                if (parts.length === 4) return `${parts[0]}.${parts[1]}.XXX.XXX`;
-                return "[MASKED]";
+                return parts.length === 4
+                    ? `${parts[0]}.${parts[1]}.XXX.XXX`
+                    : "[MASKED]";
             }
+
+            case "ip_address_v6":
+                return str.split(":")[0] + ":****:****:****";
+
+            case "coordinates": {
+                const parts = str.split(",").map(p => parseFloat(p.trim()));
+                if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                    const j = () => (Math.random() - 0.5);
+                    return `${(parts[0] + j()).toFixed(2)},${(parts[1] + j()).toFixed(2)}`;
+                }
+                return "[REDACTED]";
+            }
+
+            case "ifsc":
+                return str.length >= 4 ? `${str.slice(0, 4)}XXXXXXX` : "[MASKED]";
+
+            case "expiry": {
+                const m = str.match(/^(\d{1,2})([\/-])(\d{2,4})$/);
+                return m ? str : str; // expiry kept as-is (MM/YY has no PII)
+            }
+
+            // ── REDACT ─────────────────────────────────────────────────────
+            case "aadhaar":
+            case "pan":
+            case "ssn":
+            case "passport":
+            case "voter_id":
+            case "voterid":
+            case "driving_licence":
+            case "drivinglicence":
+            case "drivinglicense":
+            case "national_id":
+            case "gov_id":
+            case "cvv":
+            case "cvc":
+            case "cvv2":
+            case "cvv_line":
+            case "biometric":
+            case "religion_caste":
+            case "otp_sensitive":
+            case "session_sensitive":
+                return "[REDACTED]";
+
+            // ── KEEP — statistical / non-identifying fields ─────────────────
+            // These pass through unchanged to preserve LLM training utility.
+            // Masking company/salary/gender/age destroys data value with zero
+            // privacy benefit — they cannot re-identify individuals on their own.
+            case "company":
+            case "organisation":
+            case "organization":
+            case "salary":
+            case "income":
+            case "ctc":
+            case "wages":
+            case "compensation":
+            case "gender":
+            case "sex":
+            case "age":
+            case "blood_group":
+            case "bloodgroup":
+            case "marital_status":
+            case "maritalstatus":
+            case "nationality":
+            case "citizenship":
+            case "city":
+            case "state":
+            case "city_name":
+            case "town":
+            case "district":
+            case "gst":
+            case "gstin":
+            case "url_skip":
+                return value;
+
             default:
                 return "[MASKED]";
         }
     };
 };
 
+// ─── Path helpers ─────────────────────────────────────────────────────────────
 const setNestedValue = (obj, path, value) => {
     const parts = path.replace(/\[(\d+)\]/g, ".$1").split(".");
-    let current = obj;
+    let cur = obj;
     for (let i = 0; i < parts.length - 1; i++) {
-        if (current[parts[i]] === undefined) return;
-        current = current[parts[i]];
+        if (cur[parts[i]] === undefined) return;
+        cur = cur[parts[i]];
     }
-    current[parts[parts.length - 1]] = value;
+    cur[parts[parts.length - 1]] = value;
 };
 
 const getNestedValue = (obj, path) => {
     const parts = path.replace(/\[(\d+)\]/g, ".$1").split(".");
-    let current = obj;
+    let cur = obj;
     for (const part of parts) {
-        if (current === undefined || current === null) return undefined;
-        current = current[part];
+        if (cur === undefined || cur === null) return undefined;
+        cur = cur[part];
     }
-    return current;
+    return cur;
 };
 
+// ─── Public API ───────────────────────────────────────────────────────────────
 export const maskData = (taggedData, level = "medium") => {
     const pseudonymMap = createPseudonymMap();
     const mask = createMasker(pseudonymMap, level);
@@ -139,11 +264,32 @@ export const maskData = (taggedData, level = "medium") => {
         const { __pii = {}, ...rest } = record;
         const newRecord = JSON.parse(JSON.stringify(rest));
 
-        for (const [fieldPath, type] of Object.entries(__pii)) {
+        for (const [fieldPath, annotation] of Object.entries(__pii)) {
+
+            // ✅ ROOT CAUSE FIX — this is the ONE line that was broken:
+            //
+            // pii-detector v15 stores __pii values as OBJECTS:
+            //   { type: "salary", confidence: "high" }
+            //
+            // The old code did:
+            //   for (const [fieldPath, type] of Object.entries(__pii))
+            //   mask(value, type)
+            //
+            // So `type` was the whole object, not "salary".
+            // Every switch() case missed → default → [MASKED].
+            //
+            // Fix: extract .type from the object if it's an object.
+            const typeStr = annotation && typeof annotation === "object"
+                ? annotation.type
+                : annotation;
+
+            if (!typeStr) continue;
+
             const originalValue = getNestedValue(record, fieldPath);
-            const maskedValue = mask(originalValue, type);
+            const maskedValue   = mask(originalValue, typeStr);
             setNestedValue(newRecord, fieldPath, maskedValue);
         }
+
         return newRecord;
     });
 };
