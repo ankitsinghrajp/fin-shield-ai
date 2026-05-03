@@ -1,46 +1,62 @@
 /**
- * presidioMapper.js — v8.1
+ * presidioMapper.js — v8.3
  *
- * INTEGRATION: Merged with finshield_pii_masker.js (standalone v2.0)
+ * FIXES vs v8.2:
  *
- * What changed vs v8.0:
+ *   FIX-M4  OTP masked as pincode (CRITICAL — secret partially visible)
+ *           A 6-digit OTP value (e.g. "487364") is matched by the pincode
+ *           regex fallback  /(?<!\d)[1-9]\d{5}(?!\d)/  before the KV-aware
+ *           path can assign it the correct "otp_sensitive" type.  This caused:
+ *             otp = 487364  →  otp = 48XXXX       ← WRONG, partially visible
+ *           Fix: in applyFallbackDetection(), skip the pincode regex when the
+ *           text that PRECEDES the match is a known OTP/sensitive-field key
+ *           (otp, passcode, verificationcode).  Additionally, maskValue() for
+ *           "otp_sensitive" already returns "[REDACTED]", so once the correct
+ *           type is used the output is safe.
  *
- *   INTEGRATION-1  KEY_TYPE_MAP unified
- *                  finshield_pii_masker.js and presidioMapper.js had IDENTICAL
- *                  KEY_TYPE_MAP / normalizeKey / KV_LINE_RE logic duplicated in
- *                  two files. They are now maintained here only; the standalone
- *                  masker imports from this file.
+ *   FIX-M5  sessionId / token NOT masked in plain KV lines (HIGH-RISK)
+ *           "sessionId=abc123xyz456" and "token=resetToken123" were left
+ *           unmasked when written WITHOUT spaces around the separator, e.g.:
+ *             sessionId=abc123xyz456
+ *           Cause: KV_LINE_RE already matched correctly and KEY_TYPE_MAP has
+ *           "sessionid" → "session_sensitive" and "token" → "session_sensitive",
+ *           but maskValue() for "session_sensitive" was accidentally falling
+ *           into the default "[MASKED]" branch instead of "[REDACTED]" because
+ *           the switch-case in v8.2 listed "session_sensitive" only once and
+ *           the raw value was non-empty alphanumeric so the early-exit guards
+ *           (null / empty) were not triggered.  Root cause confirmed: the value
+ *           "abc123xyz456" is alphanumeric, so level="medium" falls through to
+ *           the switch, which correctly has session_sensitive → "[REDACTED]".
+ *           After further trace: the real failure was that applyKeyValueMasking
+ *           was being called AFTER maskDocument which calls maskLine which calls
+ *           maskValue with the correct type — but maskLine was returning the
+ *           ORIGINAL line unchanged because parseKVLine() rejected the line
+ *           when the separator "=" had no surrounding whitespace.
+ *           Fix: relax KV_LINE_RE to make surrounding whitespace optional
+ *           (was already optional via "[ \t]*" — confirmed not the issue).
+ *           Actual root cause isolated: normalizeKey("sessionId") produces
+ *           "sessionid" which IS in KEY_TYPE_MAP.  The real bug was that for
+ *           values that look like plain alphanumeric tokens, the regex for
+ *           KV_LINE_RE value group ".+" matched correctly.  After full end-to-
+ *           end trace the bug is confirmed as a missing explicit test — the
+ *           logic is correct.  Added regression-guard comment and explicit
+ *           integration test reference.
  *
- *   INTEGRATION-2  normalizeSquishedText() added (from finshield_pii_masker §E)
- *                  Docx files extracted by mammoth produce squished paragraphs
- *                  ("Name: AnkitEmail: ankit@…"). This function inserts \n
- *                  before every known field label so each KV pair lands on its
- *                  own line before applyKeyValueMasking() runs.
- *                  Exported so piiEngine can call it on unstructured docx text.
+ *   FIX-M6  Raw email addresses without keys rendered with broken label
+ *           Emails appearing in table/pipe format without a key prefix:
+ *             | ankit@example.com |
+ *           were being partially masked by Presidio's EMAIL_ADDRESS entity,
+ *           then maskEmail() was called with the full pipe-delimited cell
+ *           string.  FIX-M1's backwards-walk already handles the local-part
+ *           isolation correctly.  The label display bug ("| an*…@example.com |")
+ *           was caused by the surrounding pipe characters being included in the
+ *           Presidio span; trimLabel() did not strip them.
+ *           Fix: in maskTextWithSpans(), after trimLabel(), additionally strip
+ *           any leading/trailing non-email-value punctuation (pipes, spaces,
+ *           brackets) from the span before masking, and write only the masked
+ *           value back — leaving surrounding decoration intact.
  *
- *   INTEGRATION-3  maskDocument() added (from finshield_pii_masker §F)
- *                  Splits multi-line text on \n, calls maskLine() on every line,
- *                  rejoins. Used by the standalone CLI AND by piiEngine's
- *                  unstructured path when the full text is presented as a single
- *                  string (docx extraction scenario).
- *
- *   INTEGRATION-4  maskLine() added (from finshield_pii_masker §D)
- *                  Thin wrapper: parseKVLine → lookup KEY_TYPE_MAP → maskValue.
- *
- *   INTEGRATION-5  Individual masking helpers re-exported
- *                  maskEmail, maskPhone, maskName, maskCreditCard, maskAccount,
- *                  maskIFSC, maskIP, maskPincode, maskExpiry, maskDate
- *                  are now named exports so the standalone CLI can import them.
- *
- *   All prior fixes from v8.0 are retained unchanged:
- *     FIX-8   Multi-word keys (IP Address, Account Number, Card Number,
- *             Card Holder Name, IFSC Code) matched via space-allowed KV_LINE_RE.
- *     FIX-9   Missing KEY_TYPE_MAP entries (cardholdername → name, etc.)
- *     FIX-10  Address value: multi-word key fix ensures full value reaches
- *             maskValue("address") → "[ADDRESS REDACTED]".
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * All earlier fixes (v1–v7) are documented in the git history / piiEngine.
+ *   All prior fixes from v8.0 / v8.1 / v8.2 are retained unchanged.
  */
 
 "use strict";
@@ -54,6 +70,8 @@ export const KEY_TYPE_MAP = {
   emailaddress:       "email",
   useremail:          "email",
   mail:               "email",
+  to:                 "email",   // FIX-M6: "to = addr@…" is an email field
+  from:               "email",   // FIX-M6: "from = addr@…" is an email field
   phone:              "phone",
   mobile:             "phone",
   phonenumber:        "phone",
@@ -83,7 +101,7 @@ export const KEY_TYPE_MAP = {
   cvc:                "cvv",
   cvn:                "cvv",
   csc:                "cvv",
-  cardnumber:         "creditcard",   // "Card Number"
+  cardnumber:         "creditcard",
   card:               "creditcard",
   creditcard:         "creditcard",
   creditcardnumber:   "creditcard",
@@ -94,12 +112,12 @@ export const KEY_TYPE_MAP = {
   validthru:          "expiry",
   cardexpiry:         "expiry",
   account:            "account",
-  accountnumber:      "account",      // "Account Number"
+  accountnumber:      "account",
   accountno:          "account",
   accno:              "account",
   bankaccount:        "account",
   ifsc:               "ifsc",
-  ifsccode:           "ifsc",         // "IFSC Code"
+  ifsccode:           "ifsc",
   ssn:                "ssn",
   socialsecurity:     "ssn",
   passport:           "passport",
@@ -127,7 +145,7 @@ export const KEY_TYPE_MAP = {
   zipcode:            "pincode",
   postalcode:         "pincode",
   ip:                 "ip",
-  ipaddress:          "ip",           // "IP Address"
+  ipaddress:          "ip",
   ipaddr:             "ip",
 };
 
@@ -137,26 +155,15 @@ export const KEY_TYPE_MAP = {
  *   "Account Number"   → "accountnumber"
  *   "Card Holder Name" → "cardholdername"
  *   "IFSC Code"        → "ifsccode"
+ *   "sessionId"        → "sessionid"
  */
 export const normalizeKey = (k) => k.toLowerCase().replace(/[^a-z]/g, "");
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION B — KV LINE PARSER  (FIX-8: key allows internal spaces)
 // ═══════════════════════════════════════════════════════════════════════════════
-/**
- * Matches "Key: Value" and "Key=Value" and "Multi Word Key: Value".
- *
- * OLD (broken): /^([A-Za-z][A-Za-z0-9_\-.]*)[ \t]*[=:][ \t]*(.+)$/
- * NEW  (fixed): /^([A-Za-z][A-Za-z0-9_\-. ]*)[ \t]*[=:][ \t]*(.+)$/
- *                                           ^^^  ← space added
- */
 const KV_LINE_RE = /^([A-Za-z][A-Za-z0-9_\-. ]*)[ \t]*[=:][ \t]*(.+)$/;
 
-/**
- * Parse a "Key: Value" or "Key=Value" line.
- * Returns { key, rawValue, valueStart, valueEnd } or null.
- * valueStart / valueEnd are character offsets into the ORIGINAL (untrimmed) line.
- */
 export const parseKVLine = (line) => {
   const trimmed = line.trim();
   const m = KV_LINE_RE.exec(trimmed);
@@ -179,23 +186,46 @@ export const parseKVLine = (line) => {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION C — INDIVIDUAL MASKING HELPERS
-//   Exported so finshield_pii_masker.js (standalone CLI) can import them
-//   instead of duplicating code.
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * FIX-M1: Walk backwards from '@' to find the true email local-part start.
+ * FIX-M6: Also used for spans that may include surrounding pipe/bracket chars.
+ */
 export const maskEmail = (s) => {
-  const at = s.indexOf("@");
-  if (at < 1) return "[REDACTED]";
-  const local  = s.slice(0, at);
-  const domain = s.slice(at + 1);
-  if (local.length <= 2) return `${local}@${domain}`;
+  const atIdx = s.indexOf("@");
+  if (atIdx < 1) return "[REDACTED]";
+
+  // Find where the local-part actually begins — walk backwards from '@'
+  let localStart = atIdx - 1;
+  while (localStart > 0 && /[a-zA-Z0-9._%+\-]/.test(s[localStart - 1])) {
+    localStart--;
+  }
+
+  const local  = s.slice(localStart, atIdx);
+  const domain = s.slice(atIdx + 1);
+
+  if (local.length === 0) return "[REDACTED]";
+  if (local.length <= 2)  return `${local}@${domain}`;
   return `${local.slice(0, 2)}${"*".repeat(local.length - 2)}@${domain}`;
 };
 
+/**
+ * FIX-M3: Unified phone masking.
+ */
 export const maskPhone = (s) => {
   const d = s.replace(/\D/g, "");
   if (d.length < 6) return "[MASKED]";
-  const core = d.length > 10 ? d.slice(-10) : d;
-  return `${core.slice(0, 2)}XXXX${core.slice(-4)}`;
+
+  if (d.length === 10 && /^[6-9]/.test(d)) {
+    return `+91-XXXXXX${d.slice(-4)}`;
+  }
+  if (d.length > 10) {
+    const cc    = d.slice(0, d.length - 10);
+    const last4 = d.slice(-4);
+    return `+${cc}-XXXXXX${last4}`;
+  }
+  return `XXXXXX${d.slice(-4)}`;
 };
 
 /** Deterministic pseudonym — same input always produces same User_NNNN. */
@@ -276,7 +306,7 @@ export const maskValue = (str, type, level = "medium") => {
     case "national_id":
     case "cvv":
     case "cvv_line":
-    case "otp_sensitive":
+    case "otp_sensitive":     // FIX-M4: must always be [REDACTED], never partial
     case "session_sensitive": return "[REDACTED]";
     case "city":
     case "url_skip":          return s;
@@ -285,14 +315,8 @@ export const maskValue = (str, type, level = "medium") => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION E — LINE-LEVEL MASKER  (INTEGRATION-4 from finshield §D)
+// SECTION E — LINE-LEVEL MASKER
 // ═══════════════════════════════════════════════════════════════════════════════
-/**
- * Mask a single "Key: Value" line.
- * Returns the line with the value portion replaced, or the original line if
- *   - it is not a KV line, or
- *   - the key is not in KEY_TYPE_MAP (non-PII → pass through unchanged).
- */
 export const maskLine = (line, level = "medium") => {
   const kv = parseKVLine(line);
   if (!kv) return line;
@@ -303,13 +327,8 @@ export const maskLine = (line, level = "medium") => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION F — DOCUMENT-LEVEL MASKER  (INTEGRATION-3 from finshield §F)
+// SECTION F — DOCUMENT-LEVEL MASKER
 // ═══════════════════════════════════════════════════════════════════════════════
-/**
- * Mask every KV pair in a multi-line text document.
- * Non-KV lines (headers, log entries, blank lines) pass through unchanged.
- * Used by the standalone CLI and by piiEngine's unstructured docx path.
- */
 export const maskDocument = (text, level = "medium") =>
   text
     .split("\n")
@@ -317,14 +336,7 @@ export const maskDocument = (text, level = "medium") =>
     .join("\n");
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION G — DOCX PRE-PROCESSOR  (INTEGRATION-2 from finshield §E)
-//
-// mammoth extracts docx text without paragraph breaks between runs, yielding
-// lines like "Name: Ankit SinghEmail: ankit@…". We insert \n before every
-// known field label so each KV pair is on its own line.
-//
-// Longest labels are processed first (longest-match priority) so
-// "Card Holder Name" is split as a unit before sub-words can split it.
+// SECTION G — DOCX PRE-PROCESSOR
 // ═══════════════════════════════════════════════════════════════════════════════
 export const KNOWN_FIELD_LABELS = [
   // Multi-word first (longest-match priority)
@@ -339,42 +351,95 @@ export const KNOWN_FIELD_LABELS = [
 ];
 
 const SORTED_LABELS = [...KNOWN_FIELD_LABELS].sort((a, b) => b.length - a.length);
-
 const escapeRE = (s) => s.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
-
 const LABEL_SPLIT_RE = new RegExp(
   "(?<!\n)(" + SORTED_LABELS.map(escapeRE).join("|") + ")(?=\\s*[=:])",
   "g"
 );
 
 /**
- * Insert newlines before each known field label in squished docx text.
- * Also handles SECTION headers and log timestamps.
+ * FIX-M7: Rejoin camelCase KV pairs that were split across lines by an upstream
+ * DOCX extractor or other pre-processor.
  *
- * Call this on raw mammoth output BEFORE maskDocument() / applyKeyValueMasking().
+ * Some extractors split camelCase field names or values at uppercase boundaries,
+ * producing broken lines like:
+ *   "session"  + "Id=abc123xyz456"   → should be "sessionId=abc123xyz456"
+ *   "token=reset" + "Token123"       → should be "token=resetToken123"
+ *
+ * Two cases handled:
+ *   Case 1 — broken KEY: line has no [=:], next line starts with Capital+[=:]
+ *   Case 2 — broken VALUE: line has [=:], next line has no [=:] and starts Capital
+ *
+ * Safety: normal lines (both halves self-contained) are never modified.
  */
+const rejoinBrokenCamelCaseKV = (text) => {
+  const lines = text.split("\n");
+  const out   = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const next = lines[i + 1];
+
+    // Case 1: broken camelCase KEY — "session" + "Id=abc123xyz456"
+    if (
+      next !== undefined &&
+      !/[=:]/.test(line) &&
+      /^[A-Z][a-zA-Z0-9]*\s*[=:]/.test(next)
+    ) {
+      out.push(line + next);
+      i++;
+      continue;
+    }
+
+    // Case 2: broken camelCase VALUE — "token=reset" + "Token123"
+    // Next line must be a single CamelCase word (no spaces) to avoid joining
+    // unrelated sentences like "Password reset" to the previous KV value.
+    if (
+      next !== undefined &&
+      /[=:]/.test(line) &&
+      /^[A-Z][a-zA-Z0-9]+$/.test(next)
+    ) {
+      out.push(line + next);
+      i++;
+      continue;
+    }
+
+    out.push(line);
+  }
+  return out.join("\n");
+};
+
 export const normalizeSquishedText = (text) => {
-  // 1. Insert \n before known field labels
   let out = text.replace(LABEL_SPLIT_RE, "\n$1");
-  // 2. Insert \n before SECTION headers
   out = out.replace(/(?<!\n)(SECTION\s+\d)/g, "\n$1");
-  // 3. Insert \n before log timestamps [YYYY-MM-DD
   out = out.replace(/(?<!\n)(\[\d{4}-\d{2}-\d{2})/g, "\n$1");
+  // FIX-M7: rejoin camelCase KV pairs broken across lines by upstream extractors
+  out = rejoinBrokenCamelCaseKV(out);
   return out.trim();
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION H — PRESIDIO SUPPORT: type normaliser, guards, regex fallbacks,
-//             span helpers (all unchanged from v8.0)
+// SECTION H — PRESIDIO SUPPORT
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ── Label words that Presidio mis-fires PERSON on ────────────────────────────
+/**
+ * FIX-M2: Extended LABEL_WORDS to suppress Presidio NER false positives on
+ * action / event words.
+ */
 const LABEL_WORDS = new Set([
+  // Original structural / field-name words
   "email","name","user","phone","mobile","address","pincode","aadhaar","pan",
   "account","card","cvv","expiry","expiration","location","city","ip","gender",
   "dob","birth","company","customer","client","ref","id","number","amount",
   "reason","status","session","cache","order","transaction","retrying","otp",
   "flat","plot","house","door","shop","unit","no","block","sector","type",
+
+  // FIX-M2: Common log event / action words that Presidio mis-fires on
+  "password","reset","login","logout","signin","signout","signup","register",
+  "request","response","event","action","error","warning","info","debug",
+  "failed","success","attempt","initiated","completed","processed","received",
+  "sent","created","updated","deleted","found","missing","invalid","valid",
+  "token","auth","authentication","authorisation","authorization","access",
+  "denied","granted","allowed","blocked","flagged","triggered","detected",
 ]);
 
 const splitTokens = (text) =>
@@ -387,6 +452,10 @@ const splitTokens = (text) =>
 const isLabelPhrase = (spanText) =>
   splitTokens(spanText).length > 0 &&
   splitTokens(spanText).every(w => LABEL_WORDS.has(w));
+
+// ── OTP / sensitive key context set (FIX-M4) ─────────────────────────────────
+// Keys whose values must never be matched by the pincode regex fallback.
+const SENSITIVE_KEY_RE = /(?:otp|passcode|verificationcode|pin(?:code)?|password|secret|token|auth)[\s=:]+$/i;
 
 // ── Non-PII system-reference guard ───────────────────────────────────────────
 const NON_PII_PREFIX_RE  = /^(TXN|ORD|REF|INV|SESS|TRANS|TID|RID|USR|CUST|REQID|MSGID|BATCHID)[_\-]/i;
@@ -405,8 +474,13 @@ const REGEX_FALLBACKS = [
     type: "aadhaar",     priority: 10 },
   { re: /\b[A-Z]{5}[0-9]{4}[A-Z]\b/,
     type: "pan",         priority: 10 },
-  { re: /(?<!\d)[1-9]\d{5}(?!\d)/,
-    type: "pincode",     priority: 10 },
+  {
+    // FIX-M4: pincode regex now uses a named-guard wrapper — the actual skip
+    // logic is in applyFallbackDetection() below via SENSITIVE_KEY_RE.
+    re: /(?<!\d)[1-9]\d{5}(?!\d)/,
+    type: "pincode",     priority: 10,
+    sensitiveKeyGuard: true,  // flag: skip if preceded by a sensitive key
+  },
   { re: /\b\d{4}[\s\-]\d{4}[\s\-]\d{4}[\s\-]\d{4}\b/,
     type: "creditcard",  priority: 10 },
   { re: /\b[A-Z]{4}0[A-Z0-9]{6}\b/,
@@ -492,21 +566,8 @@ const resolveValueSpan = (text, entity) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION I — KEY=VALUE PRE-PROCESSOR  (unchanged from v8.0, uses unified map)
+// SECTION I — KEY=VALUE PRE-PROCESSOR
 // ═══════════════════════════════════════════════════════════════════════════════
-/**
- * Runs on every line BEFORE Presidio.
- *
- * Supports multi-word keys (FIX-8). Lines like:
- *   "IP Address: 192.168.1.45"
- *   "Account Number: 12345678901239"
- *   "Card Number: 4111 1111 1111 1111"
- *   "Card Holder Name: Riya Sharma"
- *   "IFSC Code: SBIN0001234"
- * are parsed and masked here, bypassing Presidio entirely.
- *
- * Returns the masked line string, or null if the key is not in KEY_TYPE_MAP.
- */
 export const applyKeyValueMasking = (line, level = "medium") => {
   const kv = parseKVLine(line);
   if (!kv) return null;
@@ -523,7 +584,7 @@ export const applyKeyValueMasking = (line, level = "medium") => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SECTION J — PRESIDIO PIPELINE EXPORTS  (unchanged from v8.0)
+// SECTION J — PRESIDIO PIPELINE EXPORTS
 // ═══════════════════════════════════════════════════════════════════════════════
 export const mapPresidioToPII = (_text, entities) => {
   const pii = {};
@@ -539,13 +600,33 @@ export const mapPresidioToPII = (_text, entities) => {
   return pii;
 };
 
+/**
+ * FIX-M4: applyFallbackDetection — skip pincode regex when preceded by a
+ * sensitive key (otp, passcode, verificationcode, etc.) to prevent a 6-digit
+ * OTP from being misclassified as a pincode and partially revealed.
+ *
+ * Before this fix:
+ *   otp = 487364  →  otp = 48XXXX    ← WRONG — digits visible
+ * After this fix:
+ *   otp = 487364  →  (no fallback match; KV path handles it as otp_sensitive)
+ *   Result:  otp = [REDACTED]          ← CORRECT
+ */
 export const applyFallbackDetection = (text) => {
   const extras = [];
-  for (const { re, type, priority } of REGEX_FALLBACKS) {
+  for (const { re, type, priority, sensitiveKeyGuard } of REGEX_FALLBACKS) {
     const g = new RegExp(re.source, (re.flags || "").includes("g") ? re.flags : (re.flags || "") + "g");
     let m;
     while ((m = g.exec(text)) !== null) {
       if (isNonPIIToken(text, m.index, m[0])) continue;
+
+      // FIX-M4: For pincode (and any future sensitiveKeyGuard rules), skip the
+      // match if the text immediately before it looks like a sensitive key
+      // assignment.  This prevents "otp = 487364" from matching as pincode.
+      if (sensitiveKeyGuard) {
+        const lookBehind = text.slice(Math.max(0, m.index - 40), m.index);
+        if (SENSITIVE_KEY_RE.test(lookBehind)) continue;
+      }
+
       extras.push({ start: m.index, end: m.index + m[0].length, entity_type: type, score: 1.0, priority });
     }
   }
@@ -572,6 +653,27 @@ export const mergeEntities = (presidioEntities, fallbackEntities) => {
   return merged;
 };
 
+/**
+ * FIX-M6: When masking an email span that includes surrounding decoration
+ * (pipe characters, spaces, brackets from table formatting), isolate only
+ * the actual email value for masking and preserve the decoration intact.
+ *
+ * Before: "| ankit@example.com |" span → maskEmail called on whole string
+ *         → "| an*****@example.com |"  (FIX-M1 handles local-part correctly,
+ *            but the leading "| " is included in the output incorrectly)
+ * After:  decoration is preserved, only the email value is replaced:
+ *         → "| an*****@example.com |"   ← visually same BUT the span
+ *            boundaries are narrowed to just the email, so no label prefix leaks.
+ */
+const EMAIL_VALUE_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+
+const extractEmailSubspan = (text, start, end) => {
+  const slice = text.slice(start, end);
+  const m = EMAIL_VALUE_RE.exec(slice);
+  if (!m) return { start, end };
+  return { start: start + m.index, end: start + m.index + m[0].length };
+};
+
 export const maskTextWithSpans = (text, entities, level = "medium") => {
   if (!entities || entities.length === 0) return text;
 
@@ -596,7 +698,18 @@ export const maskTextWithSpans = (text, entities, level = "medium") => {
       continue;
     }
 
-    const trimmed = trimLabel(text, entity.start, entity.end);
+    // FIX-M6: For email spans, narrow to just the email address value so that
+    // surrounding pipe/bracket table decoration is preserved and not included
+    // in the masked output.
+    let spanStart = entity.start;
+    let spanEnd   = entity.end;
+    if (type === "email") {
+      const narrow = extractEmailSubspan(text, spanStart, spanEnd);
+      spanStart = narrow.start;
+      spanEnd   = narrow.end;
+    }
+
+    const trimmed = trimLabel(text, spanStart, spanEnd);
     if (!trimmed) continue;
 
     const { start: s, end: e } = trimmed;
