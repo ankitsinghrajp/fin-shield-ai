@@ -45,7 +45,7 @@ type ViewMode = "table" | "json" | "document";
 
 // ─── Supported file types ─────────────────────────────────────────────────────
 
-const SUPPORTED_EXTENSIONS = [".csv", ".json", ".xlsx", ".txt", ".docx"] as const;
+const SUPPORTED_EXTENSIONS = [".csv", ".json", ".xlsx", ".txt", ".docx", ".log"] as const;
 type SupportedExt = typeof SUPPORTED_EXTENSIONS[number];
 
 const FILE_TYPE_META: Record<SupportedExt, { label: string; icon: string; color: string; desc: string }> = {
@@ -54,6 +54,7 @@ const FILE_TYPE_META: Record<SupportedExt, { label: string; icon: string; color:
   ".xlsx": { label: "XLSX", icon: "📗", color: "#22c55e", desc: "Excel spreadsheet" },
   ".txt":  { label: "TXT",  icon: "📄", color: "#60a5fa", desc: "Plain text / log file" },
   ".docx": { label: "DOCX", icon: "📝", color: "#f97316", desc: "Word document" },
+  ".log":  { label: "LOG",  icon: "📄", color: "#60a5fa", desc: "Log File" },
 };
 
 function getFileExt(f: File): SupportedExt | null {
@@ -118,17 +119,12 @@ function downloadXLSX(data: Record<string, unknown>[]) {
   toast("XLSX download: install SheetJS for native XLSX support", { icon: "ℹ️" });
 }
 
-/**
- * Generates a styled HTML document and triggers download as .html
- * (fully compatible without server; opens natively in Word/LibreOffice too)
- */
 function downloadDocx(data: Record<string, unknown>[], runId: string, maskingLevel: string) {
   const lines = data.map(r => {
     if ("content" in r) return String(r.content ?? "");
     return Object.entries(r).map(([k, v]) => `${k}: ${v}`).join("\n");
   });
 
-  // Escape HTML and highlight masked tokens for Word-friendly output
   const escHtml = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -143,13 +139,10 @@ function downloadDocx(data: Record<string, unknown>[], runId: string, maskingLev
         '<span style="background:#e8f4fd;color:#1a5276;padding:1px 3px;border-radius:3px;font-family:monospace;">$1</span>');
   };
 
-  // Split multi-line content fields into individual paragraphs
   const allParagraphs: string[] = [];
   lines.forEach(line => {
     const parts = line.split("\n");
-    parts.forEach(part => {
-      if (part.trim()) allParagraphs.push(part);
-    });
+    parts.forEach(part => { if (part.trim()) allParagraphs.push(part); });
   });
 
   const now = new Date().toLocaleString();
@@ -210,12 +203,10 @@ function downloadDocx(data: Record<string, unknown>[], runId: string, maskingLev
   <div class="section-title">📄 Masked Document Content</div>
   <div class="content-block">
     ${allParagraphs.map((para, i) => {
-      // Detect section headers (all-caps lines or SECTION lines)
       const isSectionHeader = /^SECTION\s+\d+/i.test(para) || /^[A-Z\s\d:—-]{8,}$/.test(para.trim());
       if (isSectionHeader) {
         return `<div class="section-header">${escHtml(para)}</div>`;
       }
-      // Detect key: value pairs
       const kvMatch = para.match(/^([^:]{2,40}):\s(.+)$/);
       if (kvMatch) {
         return `<div class="field-row">
@@ -223,7 +214,6 @@ function downloadDocx(data: Record<string, unknown>[], runId: string, maskingLev
           <span class="field-val">${highlightMasks(kvMatch[2])}</span>
         </div>`;
       }
-      // Log lines (timestamps)
       const isLog = /^\[?\d{4}-\d{2}-\d{2}/.test(para);
       return `<div class="line-item">
         ${isLog ? '<span style="color:#60a5fa;font-size:11px;font-family:monospace;margin-right:8px;">LOG</span>' : `<span class="line-num">${i + 1}</span>`}
@@ -247,11 +237,8 @@ function downloadDocx(data: Record<string, unknown>[], runId: string, maskingLev
   toast.success("Document downloaded — open in Word or browser", { icon: "📄" });
 }
 
-// ─── Mask token highlighter (for UI rendering) ────────────────────────────────
+// ─── Mask token highlighter ────────────────────────────────────────────────────
 
-/**
- * Splits a string into segments and tags each masked token type for rich rendering.
- */
 type Segment =
   | { type: "redacted"; text: string }
   | { type: "partial-star"; text: string }
@@ -260,7 +247,6 @@ type Segment =
   | { type: "plain"; text: string };
 
 function tokeniseContent(content: string): Segment[] {
-  // Order matters: most specific first
   const patterns: [RegExp, Segment["type"]][] = [
     [/\[REDACTED\]|\[MASKED\]|\[ADDRESS REDACTED\]/g, "redacted"],
     [/\*{2,}[\d\w-]*/g, "partial-star"],
@@ -270,7 +256,6 @@ function tokeniseContent(content: string): Segment[] {
     [/CUST_\d+/g, "pseudonym"],
   ];
 
-  // Build a flat list of [start, end, type, text]
   type Match = { start: number; end: number; segType: Segment["type"]; text: string };
   const matches: Match[] = [];
 
@@ -282,7 +267,6 @@ function tokeniseContent(content: string): Segment[] {
     }
   });
 
-  // Sort by start, remove overlaps
   matches.sort((a, b) => a.start - b.start);
   const clean: Match[] = [];
   let cursor = 0;
@@ -290,7 +274,6 @@ function tokeniseContent(content: string): Segment[] {
     if (m.start >= cursor) { clean.push(m); cursor = m.end; }
   }
 
-  // Build segments
   const segments: Segment[] = [];
   let pos = 0;
   for (const m of clean) {
@@ -421,10 +404,10 @@ function FileTypeBadge({ ext }: { ext: SupportedExt }) {
 
 function MaskLegend() {
   const items = [
-    { label: "[REDACTED]", bg: "bg-red-500/10", text: "text-red-400", border: "border-red-500/20", dot: "bg-red-400", desc: "Fully removed" },
-    { label: "****1234",   bg: "bg-amber-400/10", text: "text-amber-300", border: "border-amber-400/20", dot: "bg-amber-400", desc: "Partially masked" },
-    { label: "SBINXXXX",   bg: "bg-blue-500/10", text: "text-blue-300", border: "border-blue-400/20", dot: "bg-blue-400", desc: "Pattern replaced" },
-    { label: "User_4162",  bg: "bg-purple-500/10", text: "text-purple-300", border: "border-purple-400/20", dot: "bg-purple-400", desc: "Pseudonymised" },
+    { label: "[REDACTED]", bg: "bg-red-500/10",    text: "text-red-400",    border: "border-red-500/20",    desc: "Fully removed" },
+    { label: "****1234",   bg: "bg-amber-400/10",  text: "text-amber-300",  border: "border-amber-400/20",  desc: "Partially masked" },
+    { label: "SBINXXXX",   bg: "bg-blue-500/10",   text: "text-blue-300",   border: "border-blue-400/20",   desc: "Pattern replaced" },
+    { label: "User_4162",  bg: "bg-purple-500/10", text: "text-purple-300", border: "border-purple-400/20", desc: "Pseudonymised" },
   ];
   return (
     <div className="flex flex-wrap gap-2 text-[10px]">
@@ -438,14 +421,8 @@ function MaskLegend() {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// DOCUMENT VIEW  — premium multi-line document renderer
-// ═══════════════════════════════════════════════════════════════════════════════
+// ─── Document View ────────────────────────────────────────────────────────────
 
-/**
- * Parses all line-based result rows into a flat list of display lines,
- * splitting on `\n` within the `content` field.
- */
 interface DisplayLine {
   lineNum: number;
   rawText: string;
@@ -486,7 +463,6 @@ function parseDocumentLines(result: Record<string, unknown>[]): DisplayLine[] {
 function DocumentView({ result, onCopy }: {
   result: Record<string, unknown>[];
   onCopy: (text: string, idx: number) => void;
-  copiedRow: number | null;
 }) {
   const lines = useMemo(() => parseDocumentLines(result), [result]);
 
@@ -594,14 +570,14 @@ function UploadSection({
     e.preventDefault(); setDragOver(false);
     const f = e.dataTransfer.files?.[0];
     if (!f) return;
-    if (!isValidFile(f)) { toast.error("Supported: CSV, JSON, XLSX, TXT, DOCX"); return; }
+    if (!isValidFile(f)) { toast.error("Supported: CSV, JSON, XLSX, LOG, TXT, DOCX"); return; }
     setFile(f);
   }, []);
 
   const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (!isValidFile(f)) { toast.error("Supported: CSV, JSON, XLSX, TXT, DOCX"); return; }
+    if (!isValidFile(f)) { toast.error("Supported: CSV, JSON, XLSX, LOG, TXT, DOCX"); return; }
     setFile(f);
   };
 
@@ -624,7 +600,7 @@ function UploadSection({
   const fileExt = file ? getFileExt(file) : null;
   const fileColor = file ? getFileColor(file.name) : "#6b7280";
   const fileIcon = file ? getFileIcon(file.name) : "📁";
-  const isUnstructuredType = fileExt === ".txt" || fileExt === ".docx";
+  const isUnstructuredType = fileExt === ".txt" || fileExt === ".docx" || fileExt === ".log";
 
   return (
     <section className="min-h-[100dvh] flex flex-col items-center justify-center px-4 py-12 sm:py-20 relative">
@@ -685,7 +661,7 @@ function UploadSection({
                 {SUPPORTED_EXTENSIONS.map(ext => <FileTypeBadge key={ext} ext={ext} />)}
               </div>
               <label>
-                <input type="file" className="hidden" onChange={onPick} accept=".csv,.json,.xlsx,.txt,.docx" />
+                <input type="file" className="hidden" onChange={onPick} accept=".csv,.json,.xlsx,.txt,.docx,.log" />
                 <span className="inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold px-5 sm:px-7 py-2.5 sm:py-3 bg-gradient-primary text-primary-foreground btn-glow cursor-pointer shadow-glow-primary transition-transform hover:scale-105 active:scale-95">
                   <Upload className="h-4 w-4" /> Browse files
                 </span>
@@ -735,8 +711,8 @@ function UploadSection({
                     <div className="flex items-center gap-2">
                       <span className={cn("w-2 h-2 rounded-full shrink-0", {
                         "bg-emerald-400": maskingLevel === "low",
-                        "bg-amber-400": maskingLevel === "medium",
-                        "bg-red-400": maskingLevel === "high",
+                        "bg-amber-400":   maskingLevel === "medium",
+                        "bg-red-400":     maskingLevel === "high",
                       })} />
                       <span className="capitalize">Masking: {maskingLevel}</span>
                     </div>
@@ -803,22 +779,29 @@ function UploadSection({
 
 function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elapsed: number; onReset: () => void }) {
   const navigate = useNavigate();
+
+  const { report, result, runId, maskingLevel } = data;
+
+  // ── Derive isLineBased BEFORE useState so we can use it as initialiser ──
+  const isLineBased = result.length > 0 && "line" in result[0] && "content" in result[0];
+  const inputType = report.pipeline?.inputType ?? "tabular";
+  const isDocumentType = inputType === "log" || inputType === "text";
+
+  // ── FIX: default to "document" only for line-based data, otherwise "table" ──
+  const [viewMode, setViewMode] = useState<ViewMode>(() =>
+    isLineBased ? "document" : "table"
+  );
+
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
-  const [viewMode, setViewMode] = useState<ViewMode>("document");
   const [explanationsOpen, setExplanationsOpen] = useState(false);
   const [copiedRow, setCopiedRow] = useState<number | null>(null);
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
   const [colPanelOpen, setColPanelOpen] = useState(false);
 
-  const { report, result, runId, maskingLevel } = data;
   const risk = report.riskScore.level.toLowerCase();
   const allCols = result.length > 0 ? Object.keys(result[0]) : [];
-
-  const isLineBased = result.length > 0 && "line" in result[0] && "content" in result[0];
-  const inputType = report.pipeline?.inputType ?? "tabular";
-  const isDocumentType = inputType === "log" || inputType === "text";
 
   const inputTypeLabel = inputType === "log" ? "TXT / LOG" : inputType === "text" ? "Plain Text" : inputType.toUpperCase();
   const inputTypeColor = inputType === "log" ? "#60a5fa" : inputType === "text" ? "#f97316" : "#10b981";
@@ -846,24 +829,24 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
   const qualityLabel = utilityScore >= 70 ? "Good shape" : utilityScore >= 40 ? "Needs work" : "High risk";
 
   const typeCounts = {
-    Direct: sumValues(directPII),
+    Direct:    sumValues(directPII),
     Sensitive: sumValues(sensitivePII),
-    Quasi: sumValues(quasiIdentifiers),
+    Quasi:     sumValues(quasiIdentifiers),
   };
   const maxType = Math.max(...Object.values(typeCounts), 1);
 
   const donutData = [
-    { name: "Direct PII", value: typeCounts.Direct },
+    { name: "Direct PII",    value: typeCounts.Direct    },
     { name: "Sensitive PII", value: typeCounts.Sensitive },
-    { name: "Quasi-ID", value: typeCounts.Quasi },
+    { name: "Quasi-ID",      value: typeCounts.Quasi     },
   ].filter(d => d.value > 0);
 
   const totalPii = donutData.reduce((a, b) => a + b.value, 0);
 
   const barData = [
-    ...Object.entries(directPII).map(([k, v]) => ({ field: k, count: Number(v) || 0, type: "Direct" })),
-    ...Object.entries(sensitivePII).map(([k, v]) => ({ field: k, count: Number(v) || 0, type: "Sensitive" })),
-    ...Object.entries(quasiIdentifiers).map(([k, v]) => ({ field: k, count: Number(v) || 0, type: "Quasi" })),
+    ...Object.entries(directPII).map(([k, v])        => ({ field: k, count: Number(v) || 0, type: "Direct"    })),
+    ...Object.entries(sensitivePII).map(([k, v])     => ({ field: k, count: Number(v) || 0, type: "Sensitive" })),
+    ...Object.entries(quasiIdentifiers).map(([k, v]) => ({ field: k, count: Number(v) || 0, type: "Quasi"     })),
   ];
 
   const trendData = useMemo(() => {
@@ -871,7 +854,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
     return Array.from({ length: steps }, (_, i) => ({
       date: `Day ${i + 1}`,
       total: Math.round(report.records * (0.6 + 0.4 * Math.sin(i / 3) * Math.random())),
-      pii: Math.round(report.piiFields * (0.5 + 0.5 * Math.cos(i / 3) * Math.random())),
+      pii:   Math.round(report.piiFields * (0.5 + 0.5 * Math.cos(i / 3) * Math.random())),
     }));
   }, [report.records, report.piiFields]);
 
@@ -891,18 +874,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
 
   const cardBase = "rounded-2xl border border-white/5 bg-[#0d1117]/80 backdrop-blur";
 
-  // Download options — include DOCX for document/log types
-  const downloadOptions = isDocumentType || isLineBased ? [
-    { label: "Download TXT",  icon: FileCode2,  onClick: () => downloadTXT(result),                          color: "#60a5fa" },
-    { label: "Download JSON", icon: Braces,     onClick: () => downloadJSON(result),                         color: "#8b5cf6" },
-    { label: "Download Document", icon: FileText, onClick: () => downloadDocx(result, runId, maskingLevel),  color: "#f97316" },
-  ] : [
-    { label: "Download CSV",  icon: Download,  onClick: () => downloadCSV(result),  color: "#10b981" },
-    { label: "Download JSON", icon: Braces,    onClick: () => downloadJSON(result), color: "#8b5cf6" },
-    { label: "Download XLSX", icon: Table2,    onClick: () => downloadXLSX(result), color: "#60a5fa" },
-  ];
-
-  // View mode tabs — show "Document" tab for line-based results
+  // ── View tabs — only show Document tab for line-based results ──
   const viewTabs: { mode: ViewMode; label: string; icon: React.ElementType }[] = isLineBased ? [
     { mode: "document", label: "Document", icon: ScrollText },
     { mode: "table",    label: "Table",    icon: Table2 },
@@ -910,6 +882,17 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
   ] : [
     { mode: "table", label: "Table", icon: Table2 },
     { mode: "json",  label: "JSON",  icon: Braces },
+  ];
+
+  // ── Download options ──
+  const downloadOptions = isDocumentType || isLineBased ? [
+    { label: "Download TXT",      icon: FileCode2, onClick: () => downloadTXT(result),                          color: "#60a5fa" },
+    { label: "Download JSON",     icon: Braces,    onClick: () => downloadJSON(result),                         color: "#8b5cf6" },
+    { label: "Download Document", icon: FileText,  onClick: () => downloadDocx(result, runId, maskingLevel),    color: "#f97316" },
+  ] : [
+    { label: "Download CSV",  icon: Download, onClick: () => downloadCSV(result),  color: "#10b981" },
+    { label: "Download JSON", icon: Braces,   onClick: () => downloadJSON(result), color: "#8b5cf6" },
+    { label: "Download XLSX", icon: Table2,   onClick: () => downloadXLSX(result), color: "#60a5fa" },
   ];
 
   return (
@@ -966,7 +949,6 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
               PII spans detected and masked inline — switch to <strong className="text-blue-300/80">Document</strong> view below for a rich, formatted preview with colour-coded masking.
             </p>
           </div>
-          {/* Quick legend */}
           <div className="hidden lg:flex flex-col gap-1 shrink-0">
             <MaskLegend />
           </div>
@@ -984,11 +966,11 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
             <AreaChart data={trendData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
               <defs>
                 <linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
+                  <stop offset="5%"  stopColor="#10b981" stopOpacity={0.35} />
                   <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="piiGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.35} />
+                  <stop offset="5%"  stopColor="#f97316" stopOpacity={0.35} />
                   <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
                 </linearGradient>
               </defs>
@@ -997,7 +979,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
               <YAxis tick={{ fontSize: 10, fill: "#4b5563" }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
               <Area type="monotone" dataKey="total" name="Total Fields" stroke="#10b981" strokeWidth={2} fill="url(#totalGrad)" dot={false} activeDot={{ r: 4, fill: "#10b981" }} />
-              <Area type="monotone" dataKey="pii" name="PII Fields" stroke="#f97316" strokeWidth={2} fill="url(#piiGrad)" dot={false} activeDot={{ r: 4, fill: "#f97316" }} />
+              <Area type="monotone" dataKey="pii"   name="PII Fields"   stroke="#f97316" strokeWidth={2} fill="url(#piiGrad)"   dot={false} activeDot={{ r: 4, fill: "#f97316" }} />
               <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: 11, paddingTop: 12, color: "#9ca3af" }} />
             </AreaChart>
           </ResponsiveContainer>
@@ -1105,6 +1087,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
 
       {/* ── ROW 4: Masked Data Preview ── */}
       <div className={cn(cardBase, "overflow-hidden")}>
+
         {/* Toolbar */}
         <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-white/5 flex flex-col gap-2 sm:gap-3">
           <div className="flex items-center justify-between">
@@ -1121,8 +1104,10 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
             <div className="flex rounded-lg border border-white/10 overflow-hidden shrink-0">
               {viewTabs.map(({ mode, label, icon: Icon }) => (
                 <button key={mode} onClick={() => setViewMode(mode)}
-                  className={cn("px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition-colors border-l border-white/10 first:border-l-0",
-                    viewMode === mode ? "bg-primary/20 text-primary" : "text-gray-500 hover:bg-white/5")}>
+                  className={cn(
+                    "px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition-colors border-l border-white/10 first:border-l-0",
+                    viewMode === mode ? "bg-primary/20 text-primary" : "text-gray-500 hover:bg-white/5"
+                  )}>
                   <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
                   <span className="hidden xs:inline">{label}</span>
                 </button>
@@ -1130,7 +1115,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
             </div>
           </div>
 
-          {/* Search + page size — hidden in document mode (full doc) */}
+          {/* Search + page size — hidden in document mode */}
           {viewMode !== "document" && (
             <div className="flex gap-2 items-center">
               <div className="relative flex-1">
@@ -1155,7 +1140,7 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
           )}
         </div>
 
-        {/* Column toggle for tabular */}
+        {/* Column toggle for tabular non-line-based */}
         {viewMode === "table" && !isLineBased && (
           <div className="px-4 sm:px-5 py-2 border-b border-white/[0.04]">
             <button onClick={() => setColPanelOpen(v => !v)}
@@ -1179,16 +1164,19 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
         {/* ── Document View ── */}
         {viewMode === "document" ? (
           <div className="overflow-auto max-h-[600px]">
-            <DocumentView result={result} onCopy={copyRow} copiedRow={copiedRow} />
+            <DocumentView result={result} onCopy={copyRow} />
           </div>
+
+        /* ── JSON View ── */
         ) : viewMode === "json" ? (
           <div className="overflow-auto max-h-[400px] sm:max-h-[500px] p-3 sm:p-5">
             <pre className="text-[10px] sm:text-xs font-mono text-gray-500 leading-relaxed">
               {JSON.stringify(pageData, null, 2)}
             </pre>
           </div>
+
+        /* ── Line table view for TXT/DOCX ── */
         ) : isLineBased ? (
-          /* ── Line table view for TXT/DOCX ── */
           <div className="overflow-auto max-h-[500px]">
             <table className="w-full text-xs">
               <thead>
@@ -1221,8 +1209,9 @@ function ResultDashboard({ data, elapsed, onReset }: { data: PipelineData; elaps
               </tbody>
             </table>
           </div>
+
+        /* ── Standard tabular view ── */
         ) : (
-          /* ── Standard tabular view ── */
           <div className="overflow-x-auto">
             <table className="w-full text-xs min-w-[500px]">
               <thead>

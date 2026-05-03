@@ -40,20 +40,13 @@ export const Sidebar = () => {
       </nav>
 
       <div className="p-3 border-t border-border/40">
-        <NavLink
-          to="#"
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition"
+        <div
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-sidebar-accent"
         >
-          <Settings className="h-4 w-4" />
-          Settings
-        </NavLink>
-        <div className="mt-3 p-3 rounded-lg bg-gradient-to-br from-primary/10 to-secondary/10 border border-primary/20">
-          <p className="text-xs font-medium">Free tier</p>
-          <p className="text-[11px] text-muted-foreground mt-0.5">3.2 GB / 10 GB used</p>
-          <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
-            <div className="h-full w-[32%] bg-gradient-primary rounded-full" />
-          </div>
+          
+          Version 1.1
         </div>
+      
       </div>
     </aside>
   );
