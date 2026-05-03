@@ -12,7 +12,7 @@ const ALLOWED_EXTENSIONS = [
     ".xlsx",
     ".txt",
     ".docx",
-    ".log"          // ← added
+    ".log"         
 ];
 
 const ALLOWED_MIMETYPES = [

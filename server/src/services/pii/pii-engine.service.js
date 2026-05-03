@@ -34,11 +34,12 @@
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-import { detectPII }               from "./piiDetector.js";
-import { maskData }                from "./maskEngine.js";
-import { generateReport }          from "./generateReport.js";
-import { augmentWithNLP }          from "./nlpDetector.js";
-import { analyzeTextWithPresidio } from "./presidioService.js";
+import { detectPII }               from "./pii-detector.service.js";
+import { maskData }                from "../masking/mask-engine.service.js";
+import { generateReport }          from "../report/generate-report.service.js";
+import { augmentWithNLP }          from "./nlp-detector.service.js";
+import { analyzeTextWithPresidio } from "./presidio.service.js";
+
 import {
     mapPresidioToPII,
     maskTextWithSpans,
@@ -47,8 +48,9 @@ import {
     mergeEntities,
     normalizeSquishedText,
     maskDocument,
-} from "./presidioMapper.js";
-import { applyOverrides } from "./override.js";
+} from "./presidio-mapper.service.js";
+
+import { applyOverrides } from "../../utils/override.js";
 
 const VALID_LEVELS = ["low", "medium", "high"];
 

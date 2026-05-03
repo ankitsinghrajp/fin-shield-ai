@@ -2,7 +2,7 @@
  * Data Masking Engine — v9.2 (fixed phone masking, added national_id/gov_id redaction)
  */
 
-import { createPseudonymMap } from "./pseudonymMap.js";
+import { createPseudonymMap } from "../../utils/pseudonymMap.js";
 
 const LEVELS = ["low", "medium", "high"];
 

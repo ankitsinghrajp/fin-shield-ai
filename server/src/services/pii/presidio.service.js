@@ -11,7 +11,7 @@
  
 import axios from "axios";
  
-const PRESIDIO_URL = process.env.PRESIDIO_URL || "http://localhost:5001/analyze";
+const PRESIDIO_URL = process.env.PRESIDIO_URL;
  
 /**
  * @param {string} text

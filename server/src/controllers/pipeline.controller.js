@@ -1,8 +1,8 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { APIResponse }  from "../utils/APIResponse.js";
 import { APIError }     from "../utils/APIError.js";
-import { parseFile }    from "../utils/fileParser.js";
-import { detectAndMaskPII } from "../utils/piiEngine.js";
+import { parseFile }    from "../services/file/file-parser.service.js";
+import { detectAndMaskPII } from "../services/pii/pii-engine.service.js";
 import { PipelineRun }  from "../models/pipelineRun.model.js";
 import jwt from "jsonwebtoken";
 import { User } from "../models/user.model.js";
