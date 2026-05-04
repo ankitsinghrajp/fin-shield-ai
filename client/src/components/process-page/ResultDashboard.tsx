@@ -30,6 +30,57 @@ interface Props {
   onReset: () => void;
 }
 
+// ─── Sanitization helpers ─────────────────────────────────────────────────────
+
+const BAD_KEY_RE = /^\[object\s+Object\]$/i;
+
+/**
+ * Strips keys that are "[object Object]", empty strings, or other
+ * serialisation artefacts from a breakdown map.
+ * Any numeric value carried by a bad key is re-bucketed under "other"
+ * so the count is never silently lost.
+ */
+function sanitizeBreakdown(
+  obj: Record<string, number> | undefined
+): Record<string, number> {
+  if (!obj) return {};
+  const cleaned: Record<string, number> = {};
+  let orphaned = 0;
+  for (const [k, v] of Object.entries(obj)) {
+    const num = Number(v) || 0;
+    if (!k || BAD_KEY_RE.test(k)) {
+      orphaned += num;
+    } else {
+      cleaned[k] = (cleaned[k] ?? 0) + num;
+    }
+  }
+  if (orphaned > 0) cleaned["other"] = (cleaned["other"] ?? 0) + orphaned;
+  return cleaned;
+}
+
+/**
+ * Same treatment for the explanations map — removes "[object Object]" keys
+ * and merges them under a single "other" entry.
+ */
+function sanitizeExplanations(
+  obj: Record<string, string>
+): Record<string, string> {
+  const cleaned: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (!k || BAD_KEY_RE.test(k)) {
+      if (!cleaned["other"]) cleaned["other"] = v; // keep first occurrence
+    } else {
+      cleaned[k] = v;
+    }
+  }
+  return cleaned;
+}
+
+const sumValues = (obj: Record<string, number>): number =>
+  Object.values(obj).reduce((acc, v) => acc + (Number(v) || 0), 0);
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function ResultDashboard({ data, elapsed, onReset }: Props) {
   const navigate = useNavigate();
 
@@ -64,13 +115,13 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
   const pageData = filtered.slice(page * pageSize, (page + 1) * pageSize);
   const visibleCols = allCols.filter(c => !hiddenCols.includes(c));
 
+  // ── Sanitize breakdown data before any use ──────────────────────────────────
   const rawBreakdown = report.breakdown ?? {};
-  const directPII = rawBreakdown.directPII ?? {};
-  const sensitivePII = rawBreakdown.sensitivePII ?? {};
-  const quasiIdentifiers = rawBreakdown.quasiIdentifiers ?? {};
-
-  const sumValues = (obj: Record<string, unknown>): number =>
-    Object.values(obj).reduce<number>((acc, v) => acc + (Number(v) || 0), 0);
+  const directPII        = sanitizeBreakdown(rawBreakdown.directPII);
+  const sensitivePII     = sanitizeBreakdown(rawBreakdown.sensitivePII);
+  const quasiIdentifiers = sanitizeBreakdown(rawBreakdown.quasiIdentifiers);
+  const cleanExplanations = sanitizeExplanations(report.explanations ?? {});
+  // ───────────────────────────────────────────────────────────────────────────
 
   const utilityScore = parseFloat(report.utilityPercent);
   const piiPercent = parseFloat(report.piiPercent);
@@ -100,7 +151,7 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
   const trendData = useMemo(() => {
     const steps = 12;
     return Array.from({ length: steps }, (_, i) => ({
-      date: `Day ${i + 1}`,
+      date: `T ${i + 1}`,
       total: Math.round(report.records * (0.6 + 0.4 * Math.sin(i / 3) * Math.random())),
       pii:   Math.round(report.piiFields * (0.5 + 0.5 * Math.cos(i / 3) * Math.random())),
     }));
@@ -304,11 +355,11 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
           <div className="space-y-2 mt-1">
             {donutData.map((d, i) => (
               <div key={d.name} className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: DONUT_COLORS[i] }} />
-                  <span className="text-gray-400">{d.name}</span>
+                  <span className="text-gray-400 truncate">{d.name}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <span className="font-mono font-bold" style={{ color: DONUT_COLORS[i] }}>{d.value}</span>
                   <span className="text-gray-600 font-mono text-[10px]">
                     ({totalPii > 0 ? ((d.value / totalPii) * 100).toFixed(1) : "0.0"}%)
@@ -344,12 +395,12 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
 
         {/* Toolbar */}
         <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-white/5 flex flex-col gap-2 sm:gap-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
               <Database className="h-4 w-4 text-emerald-400 shrink-0" />
               <h3 className="text-sm font-semibold">Masked Data Preview</h3>
               {isLineBased && (
-                <span className="text-[10px] px-2 py-0.5 rounded-md border border-blue-400/30 bg-blue-400/10 text-blue-400 font-mono">
+                <span className="text-[10px] px-2 py-0.5 rounded-md border border-blue-400/30 bg-blue-400/10 text-blue-400 font-mono hidden sm:inline">
                   line-by-line
                 </span>
               )}
@@ -360,12 +411,14 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
                   key={mode}
                   onClick={() => setViewMode(mode)}
                   className={cn(
-                    "px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition-colors border-l border-white/10 first:border-l-0",
-                    viewMode === mode ? "bg-primary/20 text-primary" : "text-gray-500 hover:bg-white/5"
+                    "px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition-colors border-l border-white/10 first:border-l-0 whitespace-nowrap",
+                    viewMode === mode
+                      ? "bg-primary/20 text-primary"
+                      : "text-gray-500 hover:bg-white/5 hover:text-gray-300"
                   )}
                 >
-                  <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                  <span className="hidden xs:inline">{label}</span>
+                  <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+                  <span className="hidden sm:inline">{label}</span>
                 </button>
               ))}
             </div>
@@ -373,19 +426,19 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
 
           {viewMode !== "document" && (
             <div className="flex gap-2 items-center">
-              <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-600" />
+              <div className="relative flex-1 min-w-0">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-600 pointer-events-none" />
                 <input
                   value={search}
                   onChange={e => { setSearch(e.target.value); setPage(0); }}
                   placeholder="Search records…"
-                  className="pl-8 pr-3 py-2 text-xs rounded-lg border border-white/10 bg-white/[0.03] w-full focus:outline-none focus:border-primary/50 transition-colors text-gray-300"
+                  className="pl-8 pr-3 py-2 text-xs rounded-lg border border-white/10 bg-white/[0.03] w-full focus:outline-none focus:border-primary/50 transition-colors text-gray-300 placeholder:text-gray-600"
                 />
               </div>
               <select
                 value={pageSize}
                 onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
-                className="px-2 sm:px-3 py-2 text-xs rounded-lg border border-white/10 bg-white/[0.03] focus:outline-none focus:border-primary/50 cursor-pointer shrink-0 text-gray-300"
+                className="px-2 sm:px-3 py-2 text-xs rounded-lg border border-white/10 bg-[#0d1117] focus:outline-none focus:border-primary/50 cursor-pointer shrink-0 text-gray-300"
               >
                 {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
               </select>
@@ -393,15 +446,15 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
           )}
 
           {viewMode === "document" && (
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-gray-600 font-mono shrink-0">Legend:</span>
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className="text-[10px] text-gray-600 font-mono shrink-0 mt-0.5">Legend:</span>
               <MaskLegend />
             </div>
           )}
         </div>
 
         {/* Column toggle for tabular non-line-based */}
-        {viewMode === "table" && !isLineBased && (
+        {viewMode === "table" && !isLineBased && allCols.length > 0 && (
           <div className="px-4 sm:px-5 py-2 border-b border-white/[0.04]">
             <button
               onClick={() => setColPanelOpen(v => !v)}
@@ -439,7 +492,7 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
         /* ── JSON View ── */
         ) : viewMode === "json" ? (
           <div className="overflow-auto max-h-[400px] sm:max-h-[500px] p-3 sm:p-5">
-            <pre className="text-[10px] sm:text-xs font-mono text-gray-500 leading-relaxed">
+            <pre className="text-[10px] sm:text-xs font-mono text-gray-500 leading-relaxed whitespace-pre-wrap break-all">
               {JSON.stringify(pageData, null, 2)}
             </pre>
           </div>
@@ -447,8 +500,8 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
         /* ── Line table view for TXT/DOCX ── */
         ) : isLineBased ? (
           <div className="overflow-auto max-h-[500px]">
-            <table className="w-full text-xs">
-              <thead>
+            <table className="w-full text-xs min-w-[400px]">
+              <thead className="sticky top-0 z-10 bg-[#0d1117]">
                 <tr className="border-b border-white/5 text-left">
                   <th className="px-4 sm:px-5 py-3 w-14 font-mono text-[10px] uppercase tracking-widest text-gray-600 font-medium">Line</th>
                   <th className="px-4 sm:px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-gray-600 font-medium">Content</th>
@@ -491,7 +544,7 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs min-w-[500px]">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-[#0d1117]">
                 <tr className="border-b border-white/5 text-left">
                   <th className="px-4 sm:px-5 py-3 w-10 font-mono text-[10px] uppercase tracking-widest text-gray-600 font-medium">#</th>
                   {visibleCols.map(col => (
@@ -505,7 +558,7 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
                   <tr key={i} className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03] transition-colors">
                     <td className="px-4 sm:px-5 py-3 text-gray-700 font-mono">{page * pageSize + i + 1}</td>
                     {visibleCols.map(col => (
-                      <td key={col} className="px-4 sm:px-5 py-3 font-mono text-gray-400 whitespace-nowrap">{String(row[col] ?? "—")}</td>
+                      <td key={col} className="px-4 sm:px-5 py-3 font-mono text-gray-400 whitespace-nowrap max-w-[180px] truncate">{String(row[col] ?? "—")}</td>
                     ))}
                     <td className="px-4 sm:px-5 py-3 text-right">
                       <button
@@ -589,19 +642,21 @@ export function ResultDashboard({ data, elapsed, onReset }: Props) {
           onClick={() => setExplanationsOpen(v => !v)}
           className="w-full flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 hover:bg-white/[0.03] transition-colors"
         >
-          <div className="flex items-center gap-2 sm:gap-2.5">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
             <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0" />
             <span className="text-xs sm:text-sm font-semibold text-left">How your data was masked</span>
             <span className="text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-mono shrink-0">
-              {Object.keys(report.explanations).length}
+              {Object.keys(cleanExplanations).length}
             </span>
           </div>
-          {explanationsOpen ? <ChevronUp className="h-4 w-4 text-gray-600 shrink-0" /> : <ChevronDown className="h-4 w-4 text-gray-600 shrink-0" />}
+          {explanationsOpen
+            ? <ChevronUp className="h-4 w-4 text-gray-600 shrink-0" />
+            : <ChevronDown className="h-4 w-4 text-gray-600 shrink-0" />}
         </button>
 
         {explanationsOpen && (
           <div className="px-4 sm:px-6 pb-4 sm:pb-5 border-t border-white/5 pt-3 sm:pt-4 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 animate-fade-in">
-            {Object.entries(report.explanations).map(([field, note]) => (
+            {Object.entries(cleanExplanations).map(([field, note]) => (
               <div key={field} className="flex gap-2 sm:gap-3 p-2.5 sm:p-3 rounded-xl bg-white/[0.03] border border-white/5">
                 <div className="mt-0.5 h-5 w-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                   <Shield className="h-3 w-3 text-primary" />

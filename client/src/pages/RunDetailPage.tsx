@@ -6,7 +6,7 @@ import {
   CheckCircle, FileStack, Layers, Zap, RefreshCw,
   ScrollText, FileText, FileCode2, FileType2,
 } from "lucide-react";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
@@ -92,6 +92,45 @@ function formatDate(iso: string) {
 
 function sumValues(obj: Record<string, unknown>): number {
   return Object.values(obj).reduce<number>((a, v) => a + (Number(v) || 0), 0);
+}
+
+/**
+ * Strips keys that are "[object Object]", empty strings, or look like
+ * serialisation artefacts. If a bad key carries a numeric value, we
+ * re-bucket it under "other" so the count is never silently lost.
+ */
+function sanitizeBreakdown(obj: Record<string, number> | undefined): Record<string, number> {
+  if (!obj) return {};
+  const BAD_KEY = /^\[object\s+Object\]$/i;
+  const cleaned: Record<string, number> = {};
+  let orphaned = 0;
+  for (const [k, v] of Object.entries(obj)) {
+    const num = Number(v) || 0;
+    if (!k || BAD_KEY.test(k)) {
+      orphaned += num;
+    } else {
+      cleaned[k] = (cleaned[k] ?? 0) + num;
+    }
+  }
+  if (orphaned > 0) cleaned["other"] = (cleaned["other"] ?? 0) + orphaned;
+  return cleaned;
+}
+
+/**
+ * Same sanitisation for the explanations map — drops "[object Object]" keys
+ * and replaces them with a generic "other" entry.
+ */
+function sanitizeExplanations(obj: Record<string, string>): Record<string, string> {
+  const BAD_KEY = /^\[object\s+Object\]$/i;
+  const cleaned: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (!k || BAD_KEY.test(k)) {
+      if (!cleaned["other"]) cleaned["other"] = v; // keep first occurrence
+    } else {
+      cleaned[k] = v;
+    }
+  }
+  return cleaned;
 }
 
 // ─── Download helpers ─────────────────────────────────────────────────────────
@@ -338,10 +377,10 @@ const CustomTooltip = ({ active, payload, label }: {
 }) => {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "#080c12", border: "1px solid #1a2030", borderRadius: 10, padding: "8px 14px", fontSize: 11 }}>
-      {label && <p style={{ color: "#4b5563", marginBottom: 4, fontFamily: "monospace", letterSpacing: "0.05em" }}>{label}</p>}
+    <div className="bg-[#080c12] border border-[#1a2030] rounded-xl px-3 py-2 text-[11px] shadow-2xl">
+      {label && <p className="text-gray-500 mb-1 font-mono tracking-wide">{label}</p>}
       {payload.map((p, i) => (
-        <p key={i} style={{ color: p.color, fontFamily: "monospace" }}>{p.name}: <strong>{p.value}</strong></p>
+        <p key={i} className="font-mono" style={{ color: p.color }}>{p.name}: <strong>{p.value}</strong></p>
       ))}
     </div>
   );
@@ -391,8 +430,8 @@ function TypeBar({ label, count, max, color, icon }: { label: string; count: num
         <div className="w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0" style={{ background: `${color}18` }}>
           {icon}
         </div>
-        <div>
-          <p className="text-[11px] text-gray-500 font-medium tracking-wide">{label}</p>
+        <div className="min-w-0">
+          <p className="text-[11px] text-gray-500 font-medium tracking-wide truncate">{label}</p>
           <p className="text-2xl font-bold font-mono leading-none" style={{ color }}>{count}</p>
         </div>
       </div>
@@ -465,12 +504,24 @@ function DocumentView({ result, onCopy }: {
 }) {
   const lines = useMemo(() => parseDocumentLines(result), [result]);
 
+  if (lines.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+        <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-3">
+          <ScrollText className="h-5 w-5 text-gray-600" />
+        </div>
+        <p className="text-sm font-medium text-gray-500">No document content</p>
+        <p className="text-xs text-gray-700 mt-1">This run has no line-based content to display</p>
+      </div>
+    );
+  }
+
   return (
     <div className="divide-y divide-white/[0.04]">
       {lines.map((line, i) => {
         if (line.isSectionHeader) {
           return (
-            <div key={i} className="px-5 py-3 bg-gradient-to-r from-white/[0.04] to-transparent flex items-center gap-3">
+            <div key={i} className="px-4 sm:px-5 py-3 bg-gradient-to-r from-white/[0.04] to-transparent flex items-center gap-3">
               <div className="h-px flex-1 bg-gradient-to-r from-primary/30 to-transparent" />
               <span className="text-[11px] font-mono font-bold uppercase tracking-widest text-primary/80 shrink-0">{line.rawText}</span>
               <div className="h-px flex-1 bg-gradient-to-l from-primary/30 to-transparent" />
@@ -479,12 +530,12 @@ function DocumentView({ result, onCopy }: {
         }
         if (line.isLogEntry) {
           return (
-            <div key={i} className="px-5 py-2.5 flex items-start gap-3 hover:bg-blue-500/[0.04] transition-colors group">
+            <div key={i} className="px-4 sm:px-5 py-2.5 flex items-start gap-3 hover:bg-blue-500/[0.04] transition-colors group">
               <div className="shrink-0 flex items-center gap-1.5 mt-0.5">
                 <span className="text-[9px] font-mono text-gray-700 tabular-nums w-5 text-right">{line.lineNum}</span>
                 <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-blue-500/10 text-blue-400 border border-blue-400/20 shrink-0">LOG</span>
               </div>
-              <div className="flex-1 text-[11px] font-mono text-gray-400 break-all leading-relaxed">
+              <div className="flex-1 text-[11px] font-mono text-gray-400 break-all leading-relaxed min-w-0">
                 <MaskedInline content={line.rawText} />
               </div>
               <button onClick={() => onCopy(line.rawText, i)} className="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 text-gray-600 hover:text-gray-300 transition-all">
@@ -496,11 +547,11 @@ function DocumentView({ result, onCopy }: {
         if (line.isKeyValue && line.key && line.value) {
           const hasMasked = /\[REDACTED\]|\*{2,}|XXXX|User_/.test(line.value);
           return (
-            <div key={i} className={cn("px-5 py-2 flex items-start gap-2 transition-colors group", hasMasked ? "hover:bg-amber-400/[0.03]" : "hover:bg-white/[0.02]")}>
+            <div key={i} className={cn("px-4 sm:px-5 py-2 flex items-start gap-2 transition-colors group", hasMasked ? "hover:bg-amber-400/[0.03]" : "hover:bg-white/[0.02]")}>
               <span className="text-[9px] font-mono text-gray-700 tabular-nums mt-1 w-5 text-right shrink-0">{line.lineNum}</span>
-              <div className="flex-1 grid grid-cols-[minmax(120px,160px)_1fr] gap-x-3 items-start min-w-0">
+              <div className="flex-1 grid grid-cols-[minmax(100px,150px)_1fr] gap-x-3 items-start min-w-0">
                 <span className="text-[11px] font-medium text-gray-500 truncate pt-0.5">{line.key}:</span>
-                <span className="text-[11px] font-mono break-all leading-relaxed"><MaskedInline content={line.value} /></span>
+                <span className="text-[11px] font-mono break-all leading-relaxed min-w-0"><MaskedInline content={line.value} /></span>
               </div>
               {hasMasked && <Shield className="h-3 w-3 text-amber-400/50 shrink-0 mt-0.5" />}
               <button onClick={() => onCopy(`${line.key}: ${line.value}`, i)} className="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 text-gray-600 hover:text-gray-300 transition-all">
@@ -510,15 +561,29 @@ function DocumentView({ result, onCopy }: {
           );
         }
         return (
-          <div key={i} className="px-5 py-2 flex items-start gap-3 hover:bg-white/[0.02] transition-colors group">
+          <div key={i} className="px-4 sm:px-5 py-2 flex items-start gap-3 hover:bg-white/[0.02] transition-colors group">
             <span className="text-[9px] font-mono text-gray-700 tabular-nums mt-0.5 w-5 text-right shrink-0">{line.lineNum}</span>
-            <div className="flex-1 text-[11px] text-gray-400 break-all leading-relaxed"><MaskedInline content={line.rawText} /></div>
+            <div className="flex-1 text-[11px] text-gray-400 break-all leading-relaxed min-w-0"><MaskedInline content={line.rawText} /></div>
             <button onClick={() => onCopy(line.rawText, i)} className="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 text-gray-600 hover:text-gray-300 transition-all">
               <Copy className="h-3 w-3" />
             </button>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Empty State ──────────────────────────────────────────────────────────────
+
+function EmptyState({ icon: Icon, title, desc }: { icon: React.ElementType; title: string; desc: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+      <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-center mb-3">
+        <Icon className="h-5 w-5 text-gray-600" />
+      </div>
+      <p className="text-sm font-medium text-gray-500">{title}</p>
+      <p className="text-xs text-gray-700 mt-1">{desc}</p>
     </div>
   );
 }
@@ -534,20 +599,41 @@ export default function RunDetailPage() {
   const { data: response, isLoading, isFetching, refetch } = useGetRunByIdQuery(runId);
   const run: Run | undefined = response?.data?.run;
 
+  // ── Determine view type from data ──
+  const maskedData: Record<string, unknown>[] = run?.maskedData ?? [];
+  const report = run?.report;
+
+  const inputType = report?.pipeline?.inputType ?? "tabular";
+  const isDocumentType = inputType === "log" || inputType === "text";
+  const isLineBased = maskedData.length > 0 && "line" in maskedData[0] && "content" in maskedData[0];
+
+  // ── FIX: Compute correct default view mode based on data type ──
+  const getDefaultViewMode = (): ViewMode => {
+    if (isLineBased || isDocumentType) return "document";
+    return "table";
+  };
+
+  const [viewMode, setViewMode] = useState<ViewMode>("table"); // safe initial, corrected in effect
+  const [viewModeInitialized, setViewModeInitialized] = useState(false);
+
+  // Once run data loads, set the correct default view mode
+  useEffect(() => {
+    if (run && !viewModeInitialized) {
+      setViewMode(getDefaultViewMode());
+      setViewModeInitialized(true);
+    }
+  }, [run, viewModeInitialized]);
+
   // ── local state ──
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
-  const [viewMode, setViewMode] = useState<ViewMode>("document");
   const [explanationsOpen, setExplanationsOpen] = useState(false);
   const [copiedRow, setCopiedRow] = useState<number | null>(null);
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
   const [colPanelOpen, setColPanelOpen] = useState(false);
 
   // ── derived ──
-  const report = run?.report;
-  const maskedData: Record<string, unknown>[] = run?.maskedData ?? [];
-
   const allCols = maskedData.length > 0 ? Object.keys(maskedData[0]) : [];
   const visibleCols = allCols.filter(c => !hiddenCols.includes(c));
 
@@ -555,16 +641,12 @@ export default function RunDetailPage() {
   const piiPercent   = report ? parseFloat(report.piiPercent) : 0;
   const risk = (report?.riskScore?.level ?? "low").toLowerCase();
 
-  const inputType     = report?.pipeline?.inputType ?? "tabular";
-  const isDocumentType = inputType === "log" || inputType === "text";
-  const isLineBased   = maskedData.length > 0 && "line" in maskedData[0] && "content" in maskedData[0];
-
   const inputTypeLabel = inputType === "log" ? "TXT / LOG" : inputType === "text" ? "Plain Text" : inputType.toUpperCase();
   const inputTypeColor = inputType === "log" ? "#60a5fa" : inputType === "text" ? "#f97316" : "#10b981";
 
-  const directPII        = report?.breakdown?.directPII        ?? {};
-  const sensitivePII     = report?.breakdown?.sensitivePII     ?? {};
-  const quasiIdentifiers = report?.breakdown?.quasiIdentifiers ?? {};
+  const directPII        = sanitizeBreakdown(report?.breakdown?.directPII);
+  const sensitivePII     = sanitizeBreakdown(report?.breakdown?.sensitivePII);
+  const quasiIdentifiers = sanitizeBreakdown(report?.breakdown?.quasiIdentifiers);
 
   const typeCounts = {
     Direct:    sumValues(directPII),
@@ -614,7 +696,7 @@ export default function RunDetailPage() {
     copyRow(JSON.stringify(row, null, 2), idx);
   }
 
-  // ── view tabs ──
+  // ── view tabs — built from data type so always correct ──
   const viewTabs: { mode: ViewMode; label: string; icon: React.ElementType }[] = isLineBased ? [
     { mode: "document", label: "Document", icon: ScrollText },
     { mode: "table",    label: "Table",    icon: Table2 },
@@ -624,11 +706,15 @@ export default function RunDetailPage() {
     { mode: "json",  label: "JSON",  icon: Braces },
   ];
 
+  // Ensure current viewMode is valid for available tabs
+  const validModes = viewTabs.map(t => t.mode);
+  const activeViewMode = validModes.includes(viewMode) ? viewMode : validModes[0];
+
   // ── download options ──
   const downloadOptions = isDocumentType || isLineBased ? [
     { label: "Download TXT",      icon: FileCode2, onClick: () => downloadTXT(maskedData),                                         color: "#60a5fa", desc: "Plain text format" },
     { label: "Download JSON",     icon: Braces,    onClick: () => downloadJSON(maskedData),                                        color: "#8b5cf6", desc: "Structured JSON format" },
-    { label: "Download Document", icon: FileText,  onClick: () => downloadDocx(maskedData, run!._id, run!.maskingLevel),           color: "#f97316", desc: "HTML/Word document" },
+    { label: "Download Document", icon: FileText,  onClick: () => run && downloadDocx(maskedData, run._id, run.maskingLevel),      color: "#f97316", desc: "HTML / Word document" },
   ] : [
     { label: "Download CSV",  icon: Download, onClick: () => downloadCSV(maskedData),  color: "#10b981", desc: "Comma-separated values" },
     { label: "Download JSON", icon: Braces,   onClick: () => downloadJSON(maskedData), color: "#8b5cf6", desc: "Structured JSON format" },
@@ -641,12 +727,12 @@ export default function RunDetailPage() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="max-w-7xl mx-auto space-y-5 animate-pulse">
+        <div className="max-w-7xl mx-auto space-y-5 animate-pulse px-4 sm:px-0">
           <div className="flex items-center gap-3 mb-6">
             <Skeleton className="h-8 w-8 rounded-xl" />
             <Skeleton className="h-6 w-48" />
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24" />)}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
@@ -662,7 +748,7 @@ export default function RunDetailPage() {
   if (!run || !report) {
     return (
       <DashboardLayout>
-        <div className="flex flex-col items-center justify-center h-64 text-center">
+        <div className="flex flex-col items-center justify-center h-64 text-center px-4">
           <AlertTriangle className="h-10 w-10 text-amber-400 mb-3" />
           <p className="text-lg font-semibold">Run not found</p>
           <p className="text-sm text-muted-foreground mt-1 mb-5">This run may have been deleted or the ID is invalid.</p>
@@ -676,66 +762,64 @@ export default function RunDetailPage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-7xl mx-auto space-y-5 pb-10">
+      <div className="max-w-7xl mx-auto space-y-4 pb-10 px-0">
 
         {/* ── Top nav bar ── */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-2">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-1">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => navigate("/dashboard")}
-              className="p-2 rounded-xl border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-all hover:bg-white/[0.04]"
+              className="p-2 rounded-xl border border-white/10 text-gray-400 hover:text-white hover:border-white/20 transition-all hover:bg-white/[0.04] shrink-0"
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 mb-0.5">
-                <p className="text-[10px] font-mono uppercase tracking-widest text-primary">Run detail</p>
+                <p className="text-[10px] font-mono uppercase tracking-widest text-primary shrink-0">Run detail</p>
                 <span className="text-gray-700">·</span>
-                <p className="text-[10px] font-mono text-gray-600">{run._id.slice(-8).toUpperCase()}</p>
+                <p className="text-[10px] font-mono text-gray-600 truncate">{run._id.slice(-8).toUpperCase()}</p>
               </div>
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate max-w-[300px] sm:max-w-none">{run.fileName}</h1>
+              <h1 className="text-lg sm:text-2xl font-bold tracking-tight truncate">{run.fileName}</h1>
             </div>
           </div>
-          <div className="flex items-center gap-2 self-start sm:self-auto">
-            <span className={cn("text-xs font-mono px-3 py-1.5 rounded-xl border capitalize font-semibold", MASKING_COLORS[run.maskingLevel] ?? "text-gray-400 border-white/10")}>
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <span className={cn("text-xs font-mono px-3 py-1.5 rounded-xl border capitalize font-semibold whitespace-nowrap", MASKING_COLORS[run.maskingLevel] ?? "text-gray-400 border-white/10")}>
               {run.maskingLevel} masking
             </span>
             <Button variant="ghost" size="icon" onClick={() => refetch()} disabled={isFetching}
-              className="rounded-xl border border-white/10 hover:border-primary/40 hover:bg-primary/5 h-8 w-8">
+              className="rounded-xl border border-white/10 hover:border-primary/40 hover:bg-primary/5 h-8 w-8 shrink-0">
               <RefreshCw className={cn("h-3.5 w-3.5 text-gray-400", isFetching && "animate-spin text-primary")} />
             </Button>
           </div>
         </div>
 
         {/* ── Meta bar ── */}
-        <div className={cn(card, "px-4 sm:px-6 py-3 flex flex-wrap items-center gap-x-5 gap-y-2")}>
-          <div className="flex items-center gap-1.5 text-xs font-mono text-gray-500">
+        <div className={cn(card, "px-4 sm:px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 overflow-hidden")}>
+          <div className="flex items-center gap-1.5 text-xs font-mono text-gray-500 min-w-0">
             <FileStack className="h-3.5 w-3.5 shrink-0 text-primary" />
-            <span>{run.fileType}</span>
-            <span className="text-gray-700">·</span>
-            <span>{formatBytes(run.fileSize)}</span>
-            <span className="text-gray-700">·</span>
-            <span className="px-1.5 py-0.5 rounded-md border font-mono text-[10px]"
+            <span className="truncate">{run.fileType}</span>
+            <span className="text-gray-700 shrink-0">·</span>
+            <span className="shrink-0">{formatBytes(run.fileSize)}</span>
+            <span className="text-gray-700 shrink-0">·</span>
+            <span className="px-1.5 py-0.5 rounded-md border font-mono text-[10px] shrink-0"
               style={{ color: inputTypeColor, borderColor: `${inputTypeColor}40`, background: `${inputTypeColor}12` }}>
               {inputTypeLabel}
             </span>
           </div>
           <div className="flex items-center gap-1.5 text-xs font-mono text-gray-500">
             <Clock className="h-3.5 w-3.5 shrink-0" />
-            <span>{formatDate(run.createdAt)}</span>
-            <span className="text-gray-700">·</span>
-            <span>{timeAgo(run.createdAt)}</span>
+            <span className="hidden sm:inline">{formatDate(run.createdAt)}</span>
+            <span className="sm:hidden">{timeAgo(run.createdAt)}</span>
+            <span className="hidden sm:inline text-gray-700">·</span>
+            <span className="hidden sm:inline">{timeAgo(run.createdAt)}</span>
           </div>
-          <div className="flex items-center gap-1.5 text-xs font-mono text-gray-500">
+          <div className="hidden md:flex items-center gap-1.5 text-xs font-mono text-gray-500 min-w-0 overflow-hidden">
             <Layers className="h-3.5 w-3.5 shrink-0" />
-            <PipelineSteps steps={report.pipeline.steps} />
-          </div>
-          {report.pipeline.detector && (
-            <div className="hidden sm:flex items-center text-[10px] font-mono text-gray-700">
-              <span>{report.pipeline.detector}</span>
+            <div className="min-w-0 overflow-hidden">
+              <PipelineSteps steps={report.pipeline.steps} />
             </div>
-          )}
-          <div className="ml-auto flex items-center gap-1.5 text-[10px] font-mono text-gray-700">
+          </div>
+          <div className="ml-auto flex items-center gap-1.5 text-[10px] font-mono text-gray-700 shrink-0">
             <span>v{report.pipeline.version}</span>
             <span>·</span>
             <span>{report.pipeline.inputType}</span>
@@ -767,13 +851,13 @@ export default function RunDetailPage() {
             { label: "PII Detected",  value: `${run.piiDetectedPercentage}%`,       color: "#fb7185", icon: AlertTriangle },
             { label: "Utility Score", value: `${run.dataUtilityScore.toFixed(1)}`,  color: "#10b981", icon: Zap           },
           ].map(({ label, value, color, icon: Icon }) => (
-            <div key={label} className={cn(card, "p-4 flex items-center gap-3")}>
-              <div className="p-2.5 rounded-xl shrink-0" style={{ background: `${color}12`, border: `1px solid ${color}22` }}>
+            <div key={label} className={cn(card, "p-3.5 sm:p-4 flex items-center gap-3")}>
+              <div className="p-2 sm:p-2.5 rounded-xl shrink-0" style={{ background: `${color}12`, border: `1px solid ${color}22` }}>
                 <Icon className="h-4 w-4" style={{ color }} />
               </div>
-              <div>
-                <p className="text-2xl font-bold font-mono leading-none" style={{ color }}>{value}</p>
-                <p className="text-[11px] text-gray-600 mt-0.5 tracking-wide">{label}</p>
+              <div className="min-w-0">
+                <p className="text-xl sm:text-2xl font-bold font-mono leading-none truncate" style={{ color }}>{value}</p>
+                <p className="text-[10px] sm:text-[11px] text-gray-600 mt-0.5 tracking-wide truncate">{label}</p>
               </div>
             </div>
           ))}
@@ -781,34 +865,36 @@ export default function RunDetailPage() {
 
         {/* ── Row 2: Area + Quality ── */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-4">
-          <div className={cn(card, "p-4 sm:p-5")}>
+          <div className={cn(card, "p-4 sm:p-5 min-w-0")}>
             <div className="flex items-center gap-2 mb-4">
-              <BarChart3 className="h-4 w-4 text-emerald-400" />
+              <BarChart3 className="h-4 w-4 text-emerald-400 shrink-0" />
               <h3 className="text-sm font-semibold tracking-tight">Field Detection Trend</h3>
             </div>
-            <ResponsiveContainer width="100%" height={190}>
-              <AreaChart data={trendData} margin={{ top: 0, right: 0, bottom: 0, left: -22 }}>
-                <defs>
-                  <linearGradient id="rG1" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#10b981" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="rG2" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#f97316" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#111820" vertical={false} />
-                <XAxis dataKey="pt" tick={{ fontSize: 10, fill: "#374151" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: "#374151" }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="total" name="Total" stroke="#10b981" strokeWidth={2}
-                  fill="url(#rG1)" dot={false} activeDot={{ r: 3, fill: "#10b981" }} />
-                <Area type="monotone" dataKey="pii"   name="PII"   stroke="#f97316" strokeWidth={2}
-                  fill="url(#rG2)" dot={false} activeDot={{ r: 3, fill: "#f97316" }} />
-                <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: 11, paddingTop: 10, color: "#6b7280" }} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <div className="w-full overflow-hidden">
+              <ResponsiveContainer width="100%" height={190}>
+                <AreaChart data={trendData} margin={{ top: 0, right: 0, bottom: 0, left: -22 }}>
+                  <defs>
+                    <linearGradient id="rG1" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="rG2" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="#f97316" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#111820" vertical={false} />
+                  <XAxis dataKey="pt" tick={{ fontSize: 10, fill: "#374151" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "#374151" }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area type="monotone" dataKey="total" name="Total" stroke="#10b981" strokeWidth={2}
+                    fill="url(#rG1)" dot={false} activeDot={{ r: 3, fill: "#10b981" }} />
+                  <Area type="monotone" dataKey="pii"   name="PII"   stroke="#f97316" strokeWidth={2}
+                    fill="url(#rG2)" dot={false} activeDot={{ r: 3, fill: "#f97316" }} />
+                  <Legend iconType="circle" iconSize={6} wrapperStyle={{ fontSize: 11, paddingTop: 10, color: "#6b7280" }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           <div className={cn(card, "p-4 sm:p-5 flex flex-col")}>
@@ -830,24 +916,26 @@ export default function RunDetailPage() {
 
         {/* ── Row 3: Bar + Donut ── */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-4">
-          <div className={cn(card, "p-4 sm:p-5")}>
+          <div className={cn(card, "p-4 sm:p-5 min-w-0")}>
             <div className="flex items-center gap-2 mb-4">
-              <GitBranch className="h-4 w-4 text-violet-400" />
+              <GitBranch className="h-4 w-4 text-violet-400 shrink-0" />
               <h3 className="text-sm font-semibold tracking-tight">Fields by Category</h3>
             </div>
-            <ResponsiveContainer width="100%" height={190}>
-              <BarChart data={barData} margin={{ top: 0, right: 4, bottom: 0, left: -12 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#111820" vertical={false} />
-                <XAxis dataKey="field" tick={{ fontSize: 10, fill: "#4b5563" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: "#4b5563" }} axisLine={false} tickLine={false} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="count" name="Count" radius={[5, 5, 0, 0]}>
-                  {barData.map((e, i) => (
-                    <Cell key={i} fill={e.type === "Direct" ? "#f97316" : e.type === "Sensitive" ? "#facc15" : "#60a5fa"} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="w-full overflow-hidden">
+              <ResponsiveContainer width="100%" height={190}>
+                <BarChart data={barData} margin={{ top: 0, right: 4, bottom: 0, left: -12 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#111820" vertical={false} />
+                  <XAxis dataKey="field" tick={{ fontSize: 10, fill: "#4b5563" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "#4b5563" }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="count" name="Count" radius={[5, 5, 0, 0]}>
+                    {barData.map((e, i) => (
+                      <Cell key={i} fill={e.type === "Direct" ? "#f97316" : e.type === "Sensitive" ? "#facc15" : "#60a5fa"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           <div className={cn(card, "p-4 sm:p-5")}>
@@ -869,11 +957,11 @@ export default function RunDetailPage() {
             <div className="space-y-2">
               {donutData.map((d, i) => (
                 <div key={d.name} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: DONUT_COLORS[i] }} />
-                    <span className="text-gray-400">{d.name}</span>
+                    <span className="text-gray-400 truncate">{d.name}</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     <span className="font-mono font-bold" style={{ color: DONUT_COLORS[i] }}>{d.value}</span>
                     <span className="text-gray-600 font-mono text-[10px]">
                       ({totalPii > 0 ? ((d.value / totalPii) * 100).toFixed(1) : "0.0"}%)
@@ -886,7 +974,7 @@ export default function RunDetailPage() {
               <span className={cn("text-[10px] px-2 py-1 rounded-lg border font-mono font-semibold capitalize", RISK_COLORS[risk] ?? "text-gray-500")}>
                 Risk: {report.riskScore.level} · {report.riskScore.score.toFixed(2)}
               </span>
-              <p className="text-[10px] text-gray-600 mt-1.5 leading-relaxed">{report.riskScore.reason}</p>
+              <p className="text-[10px] text-gray-600 mt-1.5 leading-relaxed line-clamp-3">{report.riskScore.reason}</p>
             </div>
           </div>
         </div>
@@ -894,7 +982,7 @@ export default function RunDetailPage() {
         {/* ── Row 4: PII type bars ── */}
         <div className={cn(card, "p-4 sm:p-5")}>
           <div className="flex items-center gap-2 mb-4">
-            <Shield className="h-4 w-4 text-primary" />
+            <Shield className="h-4 w-4 text-primary shrink-0" />
             <h3 className="text-sm font-semibold tracking-tight">PII by Type</h3>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -910,61 +998,63 @@ export default function RunDetailPage() {
 
           {/* Toolbar */}
           <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-white/[0.05] flex flex-col gap-2 sm:gap-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
                 <Database className="h-4 w-4 text-emerald-400 shrink-0" />
                 <h3 className="text-sm font-semibold tracking-tight">Masked Data</h3>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-white/[0.04] text-gray-500 border border-white/[0.05]">
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-white/[0.04] text-gray-500 border border-white/[0.05] shrink-0">
                   {maskedData.length} rows
                 </span>
                 {isLineBased && (
-                  <span className="text-[10px] px-2 py-0.5 rounded-md border border-blue-400/30 bg-blue-400/10 text-blue-400 font-mono">
+                  <span className="text-[10px] px-2 py-0.5 rounded-md border border-blue-400/30 bg-blue-400/10 text-blue-400 font-mono shrink-0 hidden sm:inline">
                     line-by-line
                   </span>
                 )}
               </div>
+
               {/* View mode tabs */}
               <div className="flex rounded-lg border border-white/10 overflow-hidden shrink-0">
                 {viewTabs.map(({ mode, label, icon: Icon }) => (
-                  <button key={mode} onClick={() => setViewMode(mode)}
+                  <button key={mode}
+                    onClick={() => setViewMode(mode)}
                     className={cn(
-                      "px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition-colors border-l border-white/10 first:border-l-0",
-                      viewMode === mode ? "bg-primary/20 text-primary" : "text-gray-500 hover:bg-white/5"
+                      "px-2.5 sm:px-3 py-2 text-[10px] sm:text-xs flex items-center gap-1 sm:gap-1.5 transition-colors border-l border-white/10 first:border-l-0 whitespace-nowrap",
+                      activeViewMode === mode ? "bg-primary/20 text-primary" : "text-gray-500 hover:bg-white/5 hover:text-gray-300"
                     )}>
-                    <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                    <span className="hidden xs:inline">{label}</span>
+                    <Icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0" />
+                    <span className="hidden sm:inline">{label}</span>
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Search + page size — hidden in document mode */}
-            {viewMode !== "document" && (
+            {activeViewMode !== "document" && (
               <div className="flex gap-2 items-center">
-                <div className="relative flex-1">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-600" />
+                <div className="relative flex-1 min-w-0">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-600 pointer-events-none" />
                   <input value={search} onChange={e => { setSearch(e.target.value); setPage(0); }}
                     placeholder="Search records…"
                     className="pl-8 pr-3 py-2 text-xs rounded-lg border border-white/[0.08] bg-white/[0.025] w-full focus:outline-none focus:border-primary/40 transition-colors text-gray-300 placeholder:text-gray-700" />
                 </div>
                 <select value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(0); }}
-                  className="px-2 sm:px-3 py-2 text-xs rounded-lg border border-white/[0.08] bg-white/[0.025] focus:outline-none text-gray-400 cursor-pointer shrink-0">
+                  className="px-2 sm:px-3 py-2 text-xs rounded-lg border border-white/[0.08] bg-[#090d14] focus:outline-none text-gray-400 cursor-pointer shrink-0">
                   {[10, 25, 50].map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
             )}
 
             {/* Mask legend in document mode */}
-            {viewMode === "document" && (
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-600 font-mono shrink-0">Legend:</span>
+            {activeViewMode === "document" && (
+              <div className="flex items-start gap-2 flex-wrap">
+                <span className="text-[10px] text-gray-600 font-mono shrink-0 mt-0.5">Legend:</span>
                 <MaskLegend />
               </div>
             )}
           </div>
 
           {/* Column toggle for tabular non-line-based */}
-          {viewMode === "table" && !isLineBased && (
+          {activeViewMode === "table" && !isLineBased && allCols.length > 0 && (
             <div className="px-4 sm:px-5 py-2 border-b border-white/[0.04] flex flex-col gap-1.5">
               <button onClick={() => setColPanelOpen(v => !v)}
                 className="sm:hidden flex items-center gap-1.5 text-[11px] font-mono text-gray-600">
@@ -988,59 +1078,73 @@ export default function RunDetailPage() {
           )}
 
           {/* ── Document View ── */}
-          {viewMode === "document" ? (
-            <div className="overflow-auto max-h-[600px]">
-              <DocumentView result={maskedData} onCopy={copyRow} />
-            </div>
+          {activeViewMode === "document" ? (
+            maskedData.length === 0 ? (
+              <EmptyState icon={ScrollText} title="No document data" desc="No line-based content was found for this run." />
+            ) : (
+              <div className="overflow-auto max-h-[600px]">
+                <DocumentView result={maskedData} onCopy={copyRow} />
+              </div>
+            )
 
           /* ── JSON View ── */
-          ) : viewMode === "json" ? (
-            <div className="overflow-auto max-h-[400px] p-4 sm:p-5">
-              <pre className="text-[10px] sm:text-xs font-mono text-gray-500 leading-relaxed">
-                {JSON.stringify(pageData, null, 2)}
-              </pre>
-            </div>
+          ) : activeViewMode === "json" ? (
+            maskedData.length === 0 ? (
+              <EmptyState icon={Braces} title="No data" desc="No masked records are available for this run." />
+            ) : (
+              <div className="overflow-auto max-h-[400px] p-4 sm:p-5">
+                <pre className="text-[10px] sm:text-xs font-mono text-gray-500 leading-relaxed whitespace-pre-wrap break-all">
+                  {JSON.stringify(pageData, null, 2)}
+                </pre>
+              </div>
+            )
 
           /* ── Line-based Table View ── */
           ) : isLineBased ? (
-            <div className="overflow-auto max-h-[500px]">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-white/[0.05] text-left">
-                    <th className="px-4 sm:px-5 py-3 w-14 font-mono text-[10px] uppercase tracking-widest text-gray-700">Line</th>
-                    <th className="px-4 sm:px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-gray-700">Content</th>
-                    <th className="px-4 sm:px-5 py-3 w-12 text-right font-mono text-[10px] uppercase tracking-widest text-gray-700">Copy</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pageData.map((row, i) => {
-                    const lineNum = Number(row.line ?? (page * pageSize + i + 1));
-                    const content = String(row.content ?? "");
-                    const hasMasked = /\[REDACTED\]|\[MASKED\]|\[ADDRESS REDACTED\]|\*+|XXXX|User_/.test(content);
-                    return (
-                      <tr key={i} className={cn("border-b border-white/[0.03] last:border-0 transition-colors",
-                        hasMasked ? "hover:bg-amber-400/5" : "hover:bg-white/[0.025]")}>
-                        <td className="px-4 sm:px-5 py-3 font-mono text-gray-600 text-[10px] align-top tabular-nums">{lineNum}</td>
-                        <td className="px-4 sm:px-5 py-3 font-mono text-gray-300 break-all leading-relaxed">
-                          <MaskedInline content={content} />
-                        </td>
-                        <td className="px-4 sm:px-5 py-3 text-right align-top">
-                          <button onClick={() => copyRowObj(row, i)} className="p-1.5 rounded-md hover:bg-primary/10 text-gray-600 hover:text-primary transition-colors">
-                            {copiedRow === i ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            maskedData.length === 0 ? (
+              <EmptyState icon={Table2} title="No records" desc="No masked records found." />
+            ) : (
+              <div className="overflow-auto max-h-[500px]">
+                <table className="w-full text-xs min-w-[400px]">
+                  <thead className="sticky top-0 z-10 bg-[#090d14]">
+                    <tr className="border-b border-white/[0.05] text-left">
+                      <th className="px-4 sm:px-5 py-3 w-14 font-mono text-[10px] uppercase tracking-widest text-gray-700">Line</th>
+                      <th className="px-4 sm:px-5 py-3 font-mono text-[10px] uppercase tracking-widest text-gray-700">Content</th>
+                      <th className="px-4 sm:px-5 py-3 w-12 text-right font-mono text-[10px] uppercase tracking-widest text-gray-700">Copy</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageData.map((row, i) => {
+                      const lineNum = Number(row.line ?? (page * pageSize + i + 1));
+                      const content = String(row.content ?? "");
+                      const hasMasked = /\[REDACTED\]|\[MASKED\]|\[ADDRESS REDACTED\]|\*+|XXXX|User_/.test(content);
+                      return (
+                        <tr key={i} className={cn("border-b border-white/[0.03] last:border-0 transition-colors",
+                          hasMasked ? "hover:bg-amber-400/5" : "hover:bg-white/[0.025]")}>
+                          <td className="px-4 sm:px-5 py-3 font-mono text-gray-600 text-[10px] align-top tabular-nums">{lineNum}</td>
+                          <td className="px-4 sm:px-5 py-3 font-mono text-gray-300 break-all leading-relaxed">
+                            <MaskedInline content={content} />
+                          </td>
+                          <td className="px-4 sm:px-5 py-3 text-right align-top">
+                            <button onClick={() => copyRowObj(row, i)} className="p-1.5 rounded-md hover:bg-primary/10 text-gray-600 hover:text-primary transition-colors">
+                              {copiedRow === i ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
 
           /* ── Standard Tabular View ── */
+          ) : maskedData.length === 0 ? (
+            <EmptyState icon={Database} title="No records" desc="No masked records were found for this run." />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[500px]">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-[#090d14]">
                   <tr className="border-b border-white/[0.05] text-left">
                     <th className="px-4 sm:px-5 py-3 w-10 font-mono text-[10px] uppercase tracking-widest text-gray-700">#</th>
                     {visibleCols.map(col => (
@@ -1054,7 +1158,7 @@ export default function RunDetailPage() {
                     <tr key={i} className="border-b border-white/[0.03] last:border-0 hover:bg-white/[0.025] transition-colors">
                       <td className="px-4 sm:px-5 py-3 text-gray-700 font-mono">{page * pageSize + i + 1}</td>
                       {visibleCols.map(col => (
-                        <td key={col} className="px-4 sm:px-5 py-3 font-mono text-gray-400 whitespace-nowrap">{String(row[col] ?? "—")}</td>
+                        <td key={col} className="px-4 sm:px-5 py-3 font-mono text-gray-400 whitespace-nowrap max-w-[200px] truncate">{String(row[col] ?? "—")}</td>
                       ))}
                       <td className="px-4 sm:px-5 py-3 text-right">
                         <button onClick={() => copyRowObj(row, i)}
@@ -1070,7 +1174,7 @@ export default function RunDetailPage() {
           )}
 
           {/* Pagination — hidden in document mode */}
-          {viewMode !== "document" && (
+          {activeViewMode !== "document" && maskedData.length > 0 && (
             <div className="px-4 sm:px-5 py-3 border-t border-white/[0.05] flex items-center justify-between gap-2">
               <span className="text-[10px] sm:text-xs text-gray-600 font-mono">
                 {filtered.length} records · page {page + 1} / {Math.max(1, totalPages)}
@@ -1096,9 +1200,9 @@ export default function RunDetailPage() {
                 <div className="p-2.5 rounded-xl shrink-0" style={{ background: `${color}10`, border: `1px solid ${color}20` }}>
                   <Icon className="h-4 w-4" style={{ color }} />
                 </div>
-                <div>
-                  <p className="text-xs font-semibold text-gray-300 group-hover:text-white transition-colors">{label}</p>
-                  <p className="text-[10px] text-gray-600">{desc}</p>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-gray-300 group-hover:text-white transition-colors truncate">{label}</p>
+                  <p className="text-[10px] text-gray-600 truncate">{desc}</p>
                 </div>
               </button>
             ))}
@@ -1114,27 +1218,27 @@ export default function RunDetailPage() {
         <div className={cn(card, "overflow-hidden")}>
           <button onClick={() => setExplanationsOpen(v => !v)}
             className="w-full flex items-center justify-between px-4 sm:px-6 py-4 hover:bg-white/[0.02] transition-colors">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 min-w-0">
               <Shield className="h-4 w-4 text-primary shrink-0" />
               <span className="text-sm font-semibold tracking-tight">Masking Explanations</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20 font-mono">
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20 font-mono shrink-0">
                 {Object.keys(report.explanations).length} fields
               </span>
             </div>
             {explanationsOpen
-              ? <ChevronUp className="h-4 w-4 text-gray-600" />
-              : <ChevronDown className="h-4 w-4 text-gray-600" />}
+              ? <ChevronUp className="h-4 w-4 text-gray-600 shrink-0" />
+              : <ChevronDown className="h-4 w-4 text-gray-600 shrink-0" />}
           </button>
 
           {explanationsOpen && (
             <div className="px-4 sm:px-6 pb-5 border-t border-white/[0.05] pt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {Object.entries(report.explanations).map(([field, note]) => (
+              {Object.entries(sanitizeExplanations(report.explanations)).map(([field, note]) => (
                 <div key={field} className="flex gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
                   <div className="mt-0.5 h-5 w-5 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                     <Shield className="h-3 w-3 text-primary" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[10px] font-semibold font-mono text-primary capitalize mb-0.5">{field}</p>
+                    <p className="text-[10px] font-semibold font-mono text-primary capitalize mb-0.5 truncate">{field}</p>
                     <p className="text-[11px] text-gray-500 leading-relaxed">{note}</p>
                   </div>
                 </div>
@@ -1143,24 +1247,22 @@ export default function RunDetailPage() {
           )}
 
           <div className="px-4 sm:px-6 py-3 border-t border-white/[0.04] flex flex-wrap items-center gap-2.5">
-            <span className={cn("text-[10px] px-2.5 py-1 rounded-lg border font-mono font-semibold capitalize", RISK_COLORS[risk] ?? "text-gray-500")}>
+            <span className={cn("text-[10px] px-2.5 py-1 rounded-lg border font-mono font-semibold capitalize shrink-0", RISK_COLORS[risk] ?? "text-gray-500")}>
               {report.riskScore.level} risk · {report.riskScore.score.toFixed(2)}
             </span>
-            <span className="text-[10px] text-gray-600">{report.riskScore.reason}</span>
+            <span className="text-[10px] text-gray-600 leading-relaxed">{report.riskScore.reason}</span>
           </div>
         </div>
 
         {/* ── Utility note + pipeline meta ── */}
-        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-1">
           <p className="text-[10px] font-mono text-gray-700 leading-relaxed">{report.utilityNote}</p>
-          <div className="flex flex-wrap gap-1.5 text-[9px] sm:text-[10px] font-mono text-gray-700">
+          <div className="flex flex-wrap gap-1.5 text-[9px] sm:text-[10px] font-mono text-gray-700 shrink-0">
             <span>v{report.pipeline.version}</span>
             <span>·</span>
             <span>masking: {run.maskingLevel}</span>
             <span>·</span>
             <span>input: {report.pipeline.inputType}</span>
-            <span className="hidden sm:inline">·</span>
-            <span className="hidden sm:inline">steps: {report.pipeline.steps.join(" → ")}</span>
           </div>
         </div>
 
