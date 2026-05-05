@@ -1,9 +1,10 @@
 import { NavLink } from "@/components/NavLink";
-import { LayoutDashboard, History, Upload, Shield, Settings, FileBarChart2 } from "lucide-react";
+import { LayoutDashboard, History,Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/process", label: "Process New", icon: Shield },
   { to: "/history", label: "History", icon: History },
 ];
 

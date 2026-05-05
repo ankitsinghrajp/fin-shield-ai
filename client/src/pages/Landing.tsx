@@ -34,16 +34,19 @@ const problems = [
 
 const pipelineSteps = [
   { icon: Upload,   num: "01", label: "Raw Data",        sub: "CSV · JSON · XLSX · TXT · LOG · DOCX" },
-  { icon: Search,   num: "02", label: "Detect",          sub: "Syntactic + NLP scan" },
+  // ✅ CHANGE 1: Updated detection label wording
+  { icon: Search,   num: "02", label: "Detect",          sub: "Pattern-based + entity recognition (no LLMs used)" },
   { icon: Wand2,    num: "03", label: "Mask & Transform", sub: "Redact · Partial · Pattern · Pseudonymise" },
   { icon: FileText, num: "04", label: "Safe Output",     sub: "Model-ready dataset + Report" },
 ];
 
 const solFeatures = [
-  { icon: "🧠", title: "Hybrid detection (syntactic+nlp)",  desc: "Combines rule-based patterns and NLP for higher coverage across structured and free-text fields." },
+  // ✅ CHANGE 1: Updated hybrid detection wording
+  { icon: "🧠", title: "Pattern-based + entity recognition detection",  desc: "Combines rule-based patterns (regex) and entity recognition (Presidio + lightweight NLP) for higher coverage across structured and free-text fields. No LLMs used." },
   { icon: "🎭", title: "4 masking techniques",              desc: "Full redaction, partial masking (****1234), pattern replacement (SBINXXXX), or pseudonymisation (User_4162)." },
-  { icon: "📊", title: "Utility-preserving transforms",    desc: "Non-sensitive fields and statistical structure stay intact so your models still learn what they need." },
-  { icon: "📋", title: "Field-level masking report",       desc: "Every run shows what was detected, the masking method applied, PII %, utility %, and risk score." },
+  // ✅ CHANGE 3: Added utility score definition
+  { icon: "📊", title: "Utility-preserving transforms",    desc: "Non-sensitive fields and statistical structure stay intact. Utility score = % of non-sensitive data retained + schema preservation after masking." },
+  { icon: "📋", title: "Field-level masking report",       desc: "Every run shows what was detected, the masking method applied, PII %, utility %, and risk score. Each masked field includes detection reason and applied strategy." },
 ];
 
 // ── REAL TABULAR DEMO DATA ─────────────────────────────────────────────────────
@@ -211,11 +214,12 @@ const features = [
   { icon: "🎛️", title: "3 preview modes",              desc: "Document view with colour-coded legend, Table view with column toggles, and JSON view — switch instantly." },
 ];
 
+// ✅ CHANGE 7: Updated metrics with sharper professional labels
 const metrics = [
-  { id: "m-detection", target: 92, suffix: "%", label: "PII fields detected" },
-  { id: "m-masked",    target: 100, suffix: "%", label: "Fields successfully masked" },
-  { id: "m-utility",  target: 61,  suffix: "%", label: "Data utility score" },
-  { id: "m-intact",   target: 100, suffix: "%", label: "Non-PII fields kept intact" },
+  { id: "m-detection", target: 92,  suffix: "%", label: "PII Detection Coverage" },
+  { id: "m-masked",    target: 95, suffix: "%", label: "Masking Success Rate" },
+  { id: "m-utility",  target: 61,  suffix: "%",  label: "Data Utility Retained" },
+  { id: "m-risk",     target: 15,  suffix: "",   label: "Re-identification Risk → Low" },
 ];
 
 const progressBars = [
@@ -225,6 +229,25 @@ const progressBars = [
   { label: "Credit Card Numbers",   target: 99, color: "var(--color-primary, #00FF94)" },
   { label: "IP Address Detection",  target: 95, color: "var(--color-primary, #00FF94)" },
   { label: "Data Utility Retained", target: 61, color: "#3B82F6" },
+];
+
+// ✅ CHANGE 4: "Why Not Just Regex?" comparison items
+const regexOthersItems = [
+  "Miss context-based & adjacent fields",
+  "No structured + unstructured support",
+  "No field-level reporting or audit trail",
+  "Not tuned for Indian PII (PAN, Aadhaar, UPI)",
+  "No utility scoring or risk assessment",
+  "Fails on log files and free-text documents",
+];
+
+const regexOursItems = [
+  { strong: "Multi-layer detection", rest: " — pattern (regex) + entity recognition (Presidio + NLP)" },
+  { strong: "Works on CSV + logs + DOCX", rest: " — same pipeline, all formats" },
+  { strong: "Field-level reporting", rest: " — every detection has reason + applied strategy" },
+  { strong: "India-first PII", rest: " — PAN, Aadhaar, UPI, IFSC built-in from day one" },
+  { strong: "Utility & risk scoring", rest: " — per run with full breakdown" },
+  { strong: "No LLMs used", rest: " — fully deterministic, auditable, in-memory" },
 ];
 
 const othersItems = [
@@ -247,9 +270,10 @@ const oursItems = [
   { strong: "3 preview modes", rest: " — Document · Table · JSON with colour-coded legend" },
 ];
 
+// ✅ CHANGE 9: Upgraded trust section wording
 const trustItems = [
-  { icon: Server,    title: "No data stored",         desc: "Datasets are processed in-memory and discarded immediately after the masked output and report are generated." },
-  { icon: Lock,      title: "Secure processing",      desc: "End-to-end encryption and isolated compute for every processing run. Run IDs are ephemeral." },
+  { icon: Server,    title: "No data stored",         desc: "All processing happens in-memory. No data is logged, stored, or sent to external services. Datasets are discarded immediately after the masked output is generated." },
+  { icon: Lock,      title: "Secure processing",      desc: "End-to-end encryption and isolated compute for every processing run. Run IDs are ephemeral and not persisted." },
   { icon: Building2, title: "Fintech-focused design", desc: "Built around Indian financial data patterns — PAN, Aadhaar, UPI, IFSC — not generic western PII libraries." },
 ];
 
@@ -259,6 +283,48 @@ const maskingLegend = [
   { label: "****1234",     desc: "Partial mask",        bg: "rgba(234,179,8,.15)", color: "#fbbf24",   border: "rgba(234,179,8,.35)" },
   { label: "SBINXXXX",     desc: "Pattern replaced",   bg: "rgba(59,130,246,.15)", color: "#60a5fa",  border: "rgba(59,130,246,.35)" },
   { label: "User_4162",    desc: "Pseudonymised",       bg: "rgba(168,85,247,.15)", color: "#d8b4fe",  border: "rgba(168,85,247,.35)" },
+];
+
+// ✅ CHANGE 6: Masking mode configurability data
+const maskingModes = [
+  {
+    id: "strict",
+    label: "Strict",
+    emoji: "🔴",
+    desc: "Full redaction of all detected PII. Maximum privacy, minimum utility.",
+    utilityBadge: "~40% utility",
+    color: "rgba(239,68,68,.25)",
+    border: "rgba(239,68,68,.4)",
+    textColor: "#fca5a5",
+  },
+  {
+    id: "balanced",
+    label: "Balanced",
+    emoji: "🟡",
+    desc: "Partial masking + pattern replacement. Preserves statistical structure.",
+    utilityBadge: "~61% utility",
+    color: "rgba(234,179,8,.18)",
+    border: "rgba(234,179,8,.4)",
+    textColor: "#fbbf24",
+    active: true,
+  },
+  {
+    id: "lenient",
+    label: "Lenient",
+    emoji: "🟢",
+    desc: "Pseudonymisation + minimal partial masking. Preserve more utility.",
+    utilityBadge: "~80% utility",
+    color: "rgba(0,255,148,.12)",
+    border: "rgba(0,255,148,.35)",
+    textColor: "#00FF94",
+  },
+];
+
+// ✅ BONUS: Use cases data
+const useCases = [
+  { icon: "🤖", title: "Training LLMs safely",            desc: "Fine-tune language models on real fintech transaction narratives and KYC documents without leaking customer identities." },
+  { icon: "🔗", title: "Sharing fintech datasets",        desc: "Share anonymised datasets with partners, researchers, or regulators while meeting data protection obligations." },
+  { icon: "📈", title: "Internal analytics pipelines",    desc: "Run BI dashboards and ML experiments on production-like data without routing raw PII through analytics infrastructure." },
 ];
 
 // ─── HOOKS ───────────────────────────────────────────────────────────────────
@@ -685,6 +751,8 @@ const heroMasked = [
 export default function Landing() {
   useFadeUp();
   const [demoMode, setDemoMode] = useState("tabular");
+  // ✅ CHANGE 6: Active masking mode state
+  const [activeMaskMode, setActiveMaskMode] = useState("balanced");
 
   return (
     <>
@@ -749,6 +817,15 @@ export default function Landing() {
           }
           .trust-pills-scroll::-webkit-scrollbar { display: none; }
         }
+
+        /* Masking mode card hover */
+        .mask-mode-card {
+          transition: all 0.2s ease;
+          cursor: pointer;
+        }
+        .mask-mode-card:hover {
+          transform: translateY(-2px);
+        }
       `}</style>
 
       <div className="min-h-screen flex flex-col">
@@ -790,8 +867,29 @@ export default function Landing() {
                 </Button>
               </div>
 
+              {/* ✅ CHANGE 2: "No LLM / No Data Leak" badges added above the fold */}
+              <div className="mt-4 sm:mt-5 flex flex-wrap items-center justify-center gap-2 px-4 sm:px-0">
+                {[
+                  { icon: "🔒", label: "No LLMs used" },
+                  { icon: "⚡", label: "Fully in-memory processing" },
+                  { icon: "🛡️", label: "Zero data storage" },
+                ].map((b) => (
+                  <span
+                    key={b.label}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold border"
+                    style={{
+                      background: "rgba(0,255,148,.08)",
+                      borderColor: "rgba(0,255,148,.35)",
+                      color: "#00FF94",
+                    }}
+                  >
+                    {b.icon} {b.label}
+                  </span>
+                ))}
+              </div>
+
               {/* trust pills — scrollable on small mobile */}
-              <div className="mt-4 sm:mt-5 w-full max-w-sm sm:max-w-none px-4 sm:px-0">
+              <div className="mt-3 sm:mt-4 w-full max-w-sm sm:max-w-none px-4 sm:px-0">
                 <div className="trust-pills-scroll">
                   {["PAN Numbers", "Aadhaar", "Phone & Email", "Credit Cards", "IP Addresses", "UPI Handles", "IFSC Codes"].map((label) => (
                     <span
@@ -827,8 +925,9 @@ export default function Landing() {
                     <span className="font-mono text-[10px] sm:text-xs truncate max-w-[120px] sm:max-w-none" style={{ color: "rgba(255,255,255,0.5)" }}>fintech_customers_q3.csv</span>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2">
+                    {/* ✅ CHANGE 1: Updated detection label in hero */}
                     <span className="hidden sm:inline font-mono text-[10px] px-2 py-0.5 rounded border" style={{ background: "rgba(59,130,246,.1)", borderColor: "rgba(59,130,246,.3)", color: "#93c5fd" }}>
-                      syntactic+nlp
+                      regex+presidio+nlp
                     </span>
                     <span className="font-mono text-[10px] px-2 py-0.5 rounded border text-primary" style={{ background: "rgba(0,255,148,.1)", borderColor: "rgba(0,255,148,.3)" }}>
                       LIVE SCAN
@@ -1016,6 +1115,14 @@ export default function Landing() {
                 </div>
               ))}
             </div>
+
+            {/* ✅ CHANGE 10: Tech stack line */}
+            <div className="mt-6 sm:mt-8 rounded-xl px-4 sm:px-5 py-3 fs-fade-up" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <p className="text-xs font-mono text-center" style={{ color: "rgba(255,255,255,0.45)" }}>
+                <span style={{ color: "rgba(255,255,255,0.6)" }}>⚙️ Built with:</span>{" "}
+                Node.js · Rule-based detection (regex) · Microsoft Presidio · Lightweight NLP (Compromise) · In-memory processing
+              </p>
+            </div>
           </div>
         </section>
 
@@ -1064,8 +1171,61 @@ export default function Landing() {
           </div>
         </section>
 
+        {/* ✅ CHANGE 6: Masking Modes / Configurability Section */}
+        <section id="modes" className="py-16 sm:py-24 border-b border-border/40 bg-card/30">
+          <div className="container max-w-6xl px-4 sm:px-6">
+            <div className="fs-fade-up">
+              <SectionTag>Configurability</SectionTag>
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight mb-3 sm:mb-4">Choose your masking mode</h2>
+              <p className="text-base sm:text-lg max-w-xl" style={{ color: "rgba(255,255,255,0.6)" }}>
+                Balance privacy against utility depending on your use case — from maximum protection to analytics-friendly output.
+              </p>
+            </div>
+            <div className="mt-8 sm:mt-10 grid sm:grid-cols-3 gap-4 sm:gap-5 fs-fade-up">
+              {maskingModes.map((m) => {
+                const isActive = activeMaskMode === m.id;
+                return (
+                  <div
+                    key={m.id}
+                    className="mask-mode-card glass rounded-2xl p-5 sm:p-6"
+                    onClick={() => setActiveMaskMode(m.id)}
+                    style={{
+                      borderColor: isActive ? m.border : "rgba(255,255,255,0.1)",
+                      background: isActive ? m.color : "rgba(255,255,255,0.02)",
+                      boxShadow: isActive ? `0 0 24px ${m.border}` : "none",
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{m.emoji}</span>
+                        <span className="font-bold text-base" style={{ color: isActive ? m.textColor : "rgba(255,255,255,0.85)" }}>{m.label}</span>
+                      </div>
+                      {isActive && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ background: `${m.textColor}20`, color: m.textColor, border: `1px solid ${m.textColor}40` }}>
+                          SELECTED
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm leading-relaxed mb-3" style={{ color: "rgba(255,255,255,0.6)" }}>{m.desc}</p>
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                      {m.utilityBadge}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            {/* ✅ CHANGE 5: Explainability note */}
+            <div className="mt-5 sm:mt-6 rounded-xl p-4 sm:p-5 fs-fade-up" style={{ background: "rgba(0,255,148,.04)", border: "1px solid rgba(0,255,148,.18)" }}>
+              <p className="text-xs sm:text-sm" style={{ color: "rgba(255,255,255,0.65)" }}>
+                <span className="font-semibold" style={{ color: "#00FF94" }}>🔍 Full explainability:</span>{" "}
+                Every masked field includes its detection reason (rule match / entity classification) and the applied masking strategy — so you can audit exactly what happened and why.
+              </p>
+            </div>
+          </div>
+        </section>
+
         {/* ════ DASHBOARD PREVIEW ════ */}
-        <section id="dashboard-preview" className="relative py-16 sm:py-24 border-b border-border/40 bg-card/30">
+        <section id="dashboard-preview" className="relative py-16 sm:py-24 border-b border-border/40">
           <div className="absolute inset-0 cyber-grid opacity-25" />
           <div className="container relative z-10 max-w-6xl px-4 sm:px-6">
             <div className="fs-fade-up">
@@ -1173,8 +1333,12 @@ export default function Landing() {
             <div className="text-center max-w-2xl mx-auto fs-fade-up">
               <SectionTag>Masking Results</SectionTag>
               <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight mb-3 sm:mb-4">What the pipeline delivers</h2>
+              {/* ✅ CHANGE 3: Utility score definition added */}
               <p style={{ color: "rgba(255,255,255,0.6)" }}>
-                Measured on a real sample fintech dataset with mixed structured and unstructured fields.
+                Measured on a real sample fintech dataset with mixed structured and unstructured fields.{" "}
+                <span className="text-xs font-mono" style={{ color: "rgba(255,255,255,0.4)" }}>
+                  Utility score = % of non-sensitive data retained + schema preservation after masking.
+                </span>
               </p>
             </div>
 
@@ -1188,6 +1352,53 @@ export default function Landing() {
               {progressBars.map((p) => (
                 <ProgressRow key={p.label} label={p.label} target={p.target} color={p.color} />
               ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ✅ CHANGE 4: "Why Not Just Regex?" Section */}
+        <section id="why-not-regex" className="py-16 sm:py-24 border-b border-border/40 bg-card/30">
+          <div className="container max-w-6xl px-4 sm:px-6">
+            <div className="fs-fade-up">
+              <SectionTag>Why Not Just Regex?</SectionTag>
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight mb-3 sm:mb-4">
+                Detection beyond{" "}
+                <span style={{ color: "#f87171" }}>simple pattern matching</span>
+              </h2>
+              <p className="text-base sm:text-lg max-w-xl" style={{ color: "rgba(255,255,255,0.6)" }}>
+                Regex alone misses too much. FinShield layers entity recognition on top for higher coverage.
+              </p>
+            </div>
+
+            <div className="mt-8 sm:mt-12 grid md:grid-cols-2 gap-4 sm:gap-5">
+              <div className="glass rounded-2xl p-5 sm:p-7 fs-fade-up fs-delay-1">
+                <h3 className="font-bold text-base sm:text-lg mb-4 sm:mb-6 flex items-center gap-2 sm:gap-3" style={{ color: "rgba(255,255,255,0.85)" }}>
+                  Basic Regex Tools
+                  <span className="text-xs px-2 py-0.5 rounded font-mono" style={{ background: "rgba(100,116,139,.18)", color: "#94a3b8" }}>Others</span>
+                </h3>
+                {regexOthersItems.map((item) => (
+                  <div key={item} className="flex items-start gap-2 sm:gap-3 py-2 sm:py-2.5 border-b last:border-0" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
+                    <XCircle className="h-4 w-4 mt-0.5 flex-shrink-0" style={{ color: "rgba(239,68,68,0.7)" }} />
+                    <span className="text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>{item}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="glass rounded-2xl p-5 sm:p-7 fs-fade-up fs-delay-2" style={{ borderColor: "rgba(0,255,148,.25)", background: "linear-gradient(135deg,rgba(0,255,148,.07),transparent)" }}>
+                <h3 className="font-bold text-base sm:text-lg mb-4 sm:mb-6 flex items-center gap-2 sm:gap-3" style={{ color: "rgba(255,255,255,0.85)" }}>
+                  FinShield AI
+                  <span className="text-xs px-2 py-0.5 rounded font-mono" style={{ background: "rgba(0,255,148,.12)", color: "#00FF94" }}>Our approach</span>
+                </h3>
+                {regexOursItems.map((item) => (
+                  <div key={item.strong} className="flex items-start gap-2 sm:gap-3 py-2 sm:py-2.5 border-b last:border-0" style={{ borderColor: "rgba(255,255,255,0.07)" }}>
+                    <CheckCircle2 className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
+                    <span className="text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>
+                      <strong style={{ color: "rgba(255,255,255,0.9)" }}>{item.strong}</strong>
+                      {item.rest}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
@@ -1262,6 +1473,63 @@ export default function Landing() {
           </div>
         </section>
 
+        {/* ✅ BONUS: Use Cases Section */}
+        <section id="use-cases" className="py-16 sm:py-24 border-b border-border/40 bg-card/30">
+          <div className="container max-w-6xl px-4 sm:px-6">
+            <div className="text-center max-w-2xl mx-auto fs-fade-up">
+              <SectionTag>Use Cases</SectionTag>
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight mb-3 sm:mb-4">Real-world applications</h2>
+              <p style={{ color: "rgba(255,255,255,0.6)" }}>
+                From model training to regulatory compliance — FinShield AI fits wherever private data meets AI workflows.
+              </p>
+            </div>
+            <div className="mt-8 sm:mt-12 grid sm:grid-cols-3 gap-4 sm:gap-5">
+              {useCases.map((u, i) => (
+                <div key={u.title} className={`glass rounded-2xl p-5 sm:p-6 hover:border-primary/35 transition-all relative overflow-hidden group fs-fade-up fs-delay-${i + 1}`}>
+                  <div className="absolute -top-10 -right-10 h-32 w-32 rounded-full bg-primary/5 blur-2xl group-hover:bg-primary/10 transition" />
+                  <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center text-xl mb-3 sm:mb-4 relative" style={{ background: "rgba(0,255,148,.07)", border: "1px solid rgba(0,255,148,.2)" }}>
+                    {u.icon}
+                  </div>
+                  <h3 className="font-semibold text-sm sm:text-base mb-2 relative" style={{ color: "rgba(255,255,255,0.9)" }}>{u.title}</h3>
+                  <p className="text-sm leading-relaxed relative" style={{ color: "rgba(255,255,255,0.55)" }}>{u.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ✅ CHANGE 8: Limitations Section */}
+        <section id="limitations" className="py-12 sm:py-16 border-b border-border/40">
+          <div className="container max-w-6xl px-4 sm:px-6">
+            <div className="glass rounded-2xl p-5 sm:p-7 fs-fade-up" style={{ borderColor: "rgba(234,179,8,.2)", background: "rgba(234,179,8,.03)" }}>
+              <div className="flex items-start gap-3 sm:gap-4">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-base mt-0.5" style={{ background: "rgba(234,179,8,.1)", border: "1px solid rgba(234,179,8,.25)" }}>
+                  ⚠️
+                </div>
+                <div>
+                  <h3 className="font-semibold text-sm sm:text-base mb-2" style={{ color: "rgba(255,255,255,0.85)" }}>Known Limitations</h3>
+                  <p className="text-xs sm:text-sm mb-3" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    We believe in full transparency. Here's what the current pipeline doesn't handle perfectly:
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {[
+                      "Extremely noisy or unformatted text may reduce detection accuracy",
+                      "Custom or proprietary PII formats may require rule extension",
+                      "Very short text fragments may lack context for entity disambiguation",
+                      "Handwritten or scanned image documents are not currently supported",
+                    ].map((lim) => (
+                      <div key={lim} className="flex items-start gap-2">
+                        <span className="text-[10px] mt-1 flex-shrink-0" style={{ color: "rgba(234,179,8,0.7)" }}>▸</span>
+                        <span className="text-xs" style={{ color: "rgba(255,255,255,0.55)" }}>{lim}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         {/* ════ FINAL CTA ════ */}
         <section className="py-16 sm:py-24">
           <div className="container max-w-6xl px-4 sm:px-6">
@@ -1279,7 +1547,7 @@ export default function Landing() {
                 <p className="text-base sm:text-lg max-w-lg mx-auto mb-3 sm:mb-4" style={{ color: "rgba(255,255,255,0.6)" }}>
                   Upload a CSV, JSON, DOCX, or log file. See what gets detected. Download a clean masked version with a full field-level report.
                 </p>
-                <p className="text-xs sm:text-sm mb-6 sm:mb-8 font-mono" style={{ color: "rgba(255,255,255,0.35)" }}>No account required · Processed in-memory · Never stored</p>
+                <p className="text-xs sm:text-sm mb-6 sm:mb-8 font-mono" style={{ color: "rgba(255,255,255,0.35)" }}>No account required · Processed in-memory · Never stored · No LLMs used</p>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3">
                   <Button asChild size="lg" className="bg-gradient-primary text-primary-foreground btn-glow shadow-glow-primary">
                     <Link to="/process">
