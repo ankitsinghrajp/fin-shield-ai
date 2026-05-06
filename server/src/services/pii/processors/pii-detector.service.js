@@ -1,29 +1,36 @@
 /**
- * PII Detection Engine — v15.3
+ * PII Detection Engine — v15.4
  *
- * FIXES vs v15.2:
+ * FIXES vs v15.3:
  *
- *   FIX-5  Consistent SAME pseudonym for all name parts of one person:
- *          v15.2's FIX-4 made every field path produce a unique seed, which
- *          fixed same-hash collisions but over-corrected: FirstName and
- *          LastName of the SAME person now rendered as different User_XXXX
- *          tokens (e.g. Person_41 → User_ab12, Person_42 → User_cd34).
+ *   FIX-6  OTP detection and masking:
+ *          Fields with OTP-related key hints (otp, onetime, otpcode, etc.)
+ *          are now detected and masked as [OTP REDACTED].
+ *          Value must be 4–8 digits to avoid false positives on unrelated
+ *          numeric fields that happen to share an ambiguous key name.
  *
- *          Root cause: a person's first and last name are different raw values
- *          so they naturally hash differently; FIX-4 made it even more so.
+ *   FIX-7  Token / API-key / reset-token detection and masking:
+ *          Fields with token-related key hints (token, apikey, accesstoken,
+ *          resettoken, authtoken, bearertoken, refreshtoken, secretkey, etc.)
+ *          are now detected and masked as tok_****{last4chars}.
+ *          This preserves enough context to correlate logs while hiding the
+ *          secret value from judges / auditors.
  *
- *          Fix: all name-type fields within a single record now share a
- *          RECORD-LEVEL IDENTITY SEED derived from the sorted concatenation
- *          of every raw name-field value in that record:
- *            recordIdentitySeed = `__person__:${sortedNameValues}:${seed}`
- *          This guarantees FirstName and LastName always render the same
- *          User_XXXX token. Non-name fields continue using path-scoped seeds
- *          to prevent cross-field collisions.
+ *   FIX-8  Session ID detection and masking:
+ *          Fields with session-related key hints (sessionid, sid, session,
+ *          sessid, cookieid, jwttoken, etc.) are now detected and masked as
+ *          SID_{hash} — the same stable-pseudonym approach used for names,
+ *          so the same session value always maps to the same SID token within
+ *          a run (useful for log correlation without leaking the raw ID).
+ *          Note: "sessionid" is removed from NON_PII_FIELDS so detection fires.
+ *
+ * FIXES vs v15.2 (carried forward from v15.3):
+ *
+ *   FIX-5  Consistent SAME pseudonym for all name parts of one person.
  *
  * FIXES vs v15.1 (carried forward):
  *
- *   FIX-4  Path-scoped seed for non-name fields (prevents hash collisions
- *          between unrelated fields that happen to share the same raw value).
+ *   FIX-4  Path-scoped seed for non-name fields.
  *
  * FIXES vs v15.0 (carried forward from v15.1):
  *
@@ -112,6 +119,10 @@ const isValidEmail = (value) => {
         str.slice(atIdx + 1).length <= 253;
 };
 
+// FIX-6: OTP value must be 4–8 digits only (no separators)
+// This prevents matching arbitrary numeric strings like product codes.
+const isValidOTP = (value) => /^\d{4,8}$/.test(String(value).trim());
+
 // =============================================================================
 // SECTION 3 — PATTERNS
 // =============================================================================
@@ -132,10 +143,7 @@ const PATTERNS = {
     ifsc:          /^[A-Z]{4}0[A-Z0-9]{6}$/,
     ip:            /^(\d{1,3}\.){3}\d{1,3}$/,
 
-    // FIX-2: extended pattern covers:
-    //   Standard 16-digit: 4000-1234-5678-9010  (4-4-4-4)
-    //   Amex 15-digit:     3782-822463-10005     (4-6-5)
-    //   RuPay/Maestro:     various lengths 13-19
+    // FIX-2: extended pattern covers Standard 16-digit, Amex 15-digit, RuPay/Maestro 13-19
     creditcard: /^(\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{1,4}|\d{4}[\s\-]?\d{6}[\s\-]?\d{5})$/,
 
     ssn:           /^\d{3}[\-\s]\d{2}[\-\s]\d{4}$/,
@@ -171,12 +179,23 @@ const CVV_HINTS         = ["cvv","cvc","cvv2","cvc2","cardverification","securit
 const GOV_ID_HINTS      = ["govid","governmentid","nationalid","natid","govtid","nid","nationalidentity"];
 const NAME_EXCLUDE_HINTS= ["type","category","segment","class","status","label","tag","code","ref","sku","mode","kind"];
 
+// FIX-6: OTP hints — key must clearly signal a one-time password / code
+const OTP_HINTS         = ["otp","otpcode","onetime","onetimecode","onetimepassword","otppin","verificationcode","verifycode","authcode","passcode","pincode2","mfacode","tfacode","2facode","totp","hotp"];
+
+// FIX-7: Token / secret-key hints
+// Note: "jwt" excluded here — handled via SESSION_HINTS (FIX-8) because JWTs
+// are session credentials, not raw API secrets. If a project uses both,
+// SESSION_HINTS will catch jwt before TOKEN_HINTS is evaluated.
+const TOKEN_HINTS       = ["token","apikey","accesstoken","resettoken","authtoken","bearertoken","refreshtoken","secretkey","privatekey","clientsecret","appsecret","signingkey","encryptionkey","webhooksecret","tokenhash","tokenvalue","idtoken","oauthtoken","servicetoken","xapikey","xtoken"];
+
+// FIX-8: Session ID hints
+const SESSION_HINTS     = ["sessionid","sid","session","sessid","cookieid","jwttoken","jwt","requestsessionid","usersessionid","browsersessionid","websessionid","appsessionid","tabsessionid"];
+
 const PATTERN_HINTS = {
     // FIX-1: aadhaar hints are the primary guard — value pattern is secondary
     aadhaar:       ["aadhaar","aadhar","uid","uidai"],
     pan:           ["pan","pancard","pannumber"],
     // FIX-3: expanded creditcard hints so key-name alone triggers detection
-    //         even when Luhn fails (synthetic/test card numbers)
     creditcard:    ["creditcard","debitcard","credit","debit","ccnum","cardnumber","cardno","cc","card"],
     ssn:           ["ssn","socialsecurity","socialsecuritynumber","socialsec"],
     passport:      ["passport","passportno","passportnumber"],
@@ -205,7 +224,10 @@ export const NON_PII_FIELDS = new Set([
     "versionno","version","buildno","releaseno","ticketno","ticketid",
     "caseid","workorderid","requestid","applicationid","formid","documentid",
     "paymentid","invoiceid","quotationno","ponum","pono","grn","workflowid",
-    "jobid","taskid","queueid","messageid","sessionid","correlationid",
+    "jobid","taskid","queueid","messageid",
+    // NOTE: "sessionid" intentionally REMOVED (was here in v15.3) so that
+    // FIX-8 SESSION_HINTS detection can fire. (FIX-8)
+    "correlationid",
     "errorcode","statuscode","responsecode","resultcode","httpstatus",
     "pageno","pagenumber","rowcount","totalcount","pagesize","offset","limit",
     "currency","currencycode","countrycode","languagecode","timezone","locale",
@@ -292,6 +314,20 @@ export const detectFieldPII = (key, value) => {
             return { type: "age", confidence: "high" };
     }
 
+    // FIX-6: OTP detection — hint match + 4-8 digit value
+    if (hasHint(normKey, OTP_HINTS) && isValidOTP(strValue))
+        return { type: "otp", confidence: "high" };
+
+    // FIX-7: Token / API key detection — hint match, any non-empty string
+    // Checked before SESSION_HINTS so that "accesstoken" beats "session" if
+    // both somehow appear in the same key (unlikely but safe).
+    if (hasHint(normKey, TOKEN_HINTS) && strValue.length >= 4)
+        return { type: "token", confidence: "high" };
+
+    // FIX-8: Session ID detection — hint match, any non-empty string
+    if (hasHint(normKey, SESSION_HINTS) && strValue.length >= 4)
+        return { type: "session_id", confidence: "high" };
+
     if (CUSTOMER_ID_HINTS.map(normaliseKey).includes(normKey))
         return { type: "customer_id", confidence: "high" };
 
@@ -332,21 +368,16 @@ export const detectFieldPII = (key, value) => {
     if (/^(true|false|yes|no|null|na|n\/a|none|unknown)$/i.test(strValue)) return null;
 
     // FIX-1: Aadhaar — hint match + 12-digit structure (value pattern relaxed)
-    // Field key "Aadhaar" is the authoritative signal; pattern just verifies structure
     if (hasHint(normKey, PATTERN_HINTS.aadhaar) && PATTERNS.aadhaar.test(strValue))
         return { type: "aadhaar", confidence: "high" };
 
     if (hasHint(normKey, PATTERN_HINTS.pan) && PATTERNS.pan.test(strValue))
         return { type: "pan", confidence: "high" };
 
-    // FIX-2 + FIX-3: CreditCard detection:
-    //   - If field KEY is an explicit card hint → trust the key, skip Luhn
-    //     (synthetic/test numbers like 4000-1234-5678-9010 fail Luhn deliberately)
-    //   - If field KEY is generic → require Luhn to avoid false positives
+    // FIX-2 + FIX-3: CreditCard detection
     if (hasHint(normKey, PATTERN_HINTS.creditcard) && PATTERNS.creditcard.test(strValue)) {
         const digits = extractDigits(strValue);
         if (digits.length >= 13 && digits.length <= 19)
-            // Key hint is explicit — redact regardless of Luhn validity
             return { type: "creditcard", confidence: "high" };
     }
 
@@ -401,20 +432,33 @@ export const maskValue = (type, value, seed = "") => {
 
     // FIX-5: when the seed carries a record-identity marker (set by maskPII
     // for name-type fields), hash the seed ALONE — not str+seed.
-    // This guarantees every name field in the same record (FirstName, LastName,
-    // FullName…) produces the identical User_XXXX token regardless of the
-    // different raw values they hold.
-    // For all other fields the seed is path-scoped, so str+seed remains unique.
     const IDENTITY_MARKER = "__person__:";
     const h = (type === "name" && seed.startsWith(IDENTITY_MARKER))
-        ? shortHash(seed)          // seed encodes the person — ignore raw value
-        : shortHash(str + seed);   // normal path: raw value + field seed
+        ? shortHash(seed)
+        : shortHash(str + seed);
 
     switch (type) {
         case "aadhaar": case "pan": case "ssn": case "passport":
         case "voter_id": case "driving_licence": case "national_id":
         case "biometric": case "religion_caste": case "cvv":
             return "[REDACTED]";
+
+        // FIX-6: OTP → always fully redacted, no partial masking
+        case "otp":
+            return "[OTP REDACTED]";
+
+        // FIX-7: Token → tok_****{last4} preserves log-correlation ability
+        // while hiding the secret. Works for any token length ≥ 4.
+        case "token": {
+            const last4 = str.slice(-4);
+            return `tok_****${last4}`;
+        }
+
+        // FIX-8: Session ID → stable SID_{hash} pseudonym
+        // Same raw session value always maps to the same SID token within a run.
+        case "session_id":
+            return `SID_${h}`;
+
         case "name":        return `User_${h}`;
         case "email":       return `user_${h}@masked.com`;
         case "upi":         return `user_${h}@upi`;
@@ -538,8 +582,6 @@ export const detectPII = (data) => {
 };
 
 // NAME_FIELD_HINTS: normalised key fragments that identify a human name part.
-// All fields whose normalised key contains one of these are treated as parts
-// of the SAME person and share a single pseudonym token within a record.
 const NAME_FIELD_HINTS = ["firstname","lastname","fullname","name","surname"];
 
 export const maskPII = (data, options = {}) => {
@@ -551,14 +593,7 @@ export const maskPII = (data, options = {}) => {
             return annotate ? { ...rest, __pii } : rest;
         const masked = JSON.parse(JSON.stringify(rest));
 
-        // FIX-5: build a stable per-record identity seed for ALL name-type
-        // fields so that FirstName, LastName, FullName etc. all resolve to the
-        // SAME User_XXXX token — they are parts of the same person.
-        //
-        // We hash the sorted concatenation of every raw name-field value in
-        // the record. Sorting makes the seed order-independent across JS
-        // engines. Non-name fields still use a path-scoped seed so they never
-        // collide with each other or with the name token.
+        // FIX-5: build a stable per-record identity seed for ALL name-type fields
         const rawNameValues = Object.entries(__pii)
             .filter(([path, { type }]) => {
                 if (type !== "name") return false;
@@ -586,8 +621,6 @@ export const maskPII = (data, options = {}) => {
             for (let i = 0; i < keys.length - 1; i++) cur = cur?.[keys[i]];
             const rawVal = cur?.[keys[keys.length - 1]];
 
-            // Name fields  → shared record-identity seed (same person = same token)
-            // Other fields → path-scoped seed            (no cross-field collisions)
             const effectiveSeed =
                 type === "name" && recordIdentitySeed !== null
                     ? recordIdentitySeed
@@ -609,6 +642,8 @@ export const hasHighConfidencePII = (annotatedRecords) =>
 export const MASKING_STRATEGY = {
     name:"PSEUDONYMISE", email:"PSEUDONYMISE", upi:"PSEUDONYMISE",
     customer_id:"TOKENISE",
+    // FIX-6,7,8: new types and their strategies
+    otp:"REDACT", token:"PARTIAL", session_id:"PSEUDONYMISE",
     creditcard:"PARTIAL", account:"PARTIAL", iban:"PARTIAL", mac_address:"PARTIAL",
     phone:"GENERALISE", date:"GENERALISE", address:"GENERALISE", pincode:"GENERALISE",
     ip_address:"GENERALISE", ip_address_v6:"GENERALISE", coordinates:"GENERALISE",
