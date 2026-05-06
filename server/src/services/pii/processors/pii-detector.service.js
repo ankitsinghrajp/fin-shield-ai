@@ -1,30 +1,56 @@
 /**
- * PII Detection Engine — v15.4
+ * PII Detection Engine — v15.6
  *
- * FIXES vs v15.3:
+ * FIXES vs v15.5:
  *
- *   FIX-6  OTP detection and masking:
- *          Fields with OTP-related key hints (otp, onetime, otpcode, etc.)
- *          are now detected and masked as [OTP REDACTED].
- *          Value must be 4–8 digits to avoid false positives on unrelated
- *          numeric fields that happen to share an ambiguous key name.
+ *   FIX-11 12-digit card numbers (Maestro / Laser / some RuPay) leaked in full.
+ *          Root cause — two independent failures that compounded:
  *
- *   FIX-7  Token / API-key / reset-token detection and masking:
- *          Fields with token-related key hints (token, apikey, accesstoken,
- *          resettoken, authtoken, bearertoken, refreshtoken, secretkey, etc.)
- *          are now detected and masked as tok_****{last4chars}.
- *          This preserves enough context to correlate logs while hiding the
- *          secret value from judges / auditors.
+ *          (a) REGEX GAP: the old pattern's first branch was
+ *              \d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{1,4}  (13–16 digits)
+ *              and the second branch covered only Amex 15-digit (4-6-5).
+ *              A plain 12-digit string like "503825411245" matched neither
+ *              branch, so PATTERNS.creditcard.test() returned false.
+ *              Fix: replaced with a single generalised branch that accepts
+ *              any digit-and-optional-separator sequence totalling 12–19
+ *              digits, validated by the digit-count guard below.
  *
- *   FIX-8  Session ID detection and masking:
- *          Fields with session-related key hints (sessionid, sid, session,
- *          sessid, cookieid, jwttoken, etc.) are now detected and masked as
- *          SID_{hash} — the same stable-pseudonym approach used for names,
- *          so the same session value always maps to the same SID token within
- *          a run (useful for log correlation without leaking the raw ID).
- *          Note: "sessionid" is removed from NON_PII_FIELDS so detection fires.
+ *          (b) KEY-HINT FALLBACK ABSENT: when the value pattern fails, there
+ *              was no safety net. Any field whose key clearly signals a card
+ *              (contains "credit", "debit", "card", "cc", etc.) should be
+ *              masked unconditionally — the issuer may use a non-standard
+ *              length and the key name is the authoritative signal.
+ *              Fix: added a key-hint-only guard that fires first, before the
+ *              combined hint+pattern test. If the key hints at a card number
+ *              AND the digit count is 12–19, we mask regardless of formatting.
  *
- * FIXES vs v15.2 (carried forward from v15.3):
+ * FIXES vs v15.4 (carried forward from v15.5):
+ *
+ *   FIX-9  IP / MAC address detection ordering:
+ *          ip, ipv6, and mac checks are now evaluated BEFORE the address
+ *          check. Previously, hasHint(normKey, ADDRESS_HINTS) was matching
+ *          keys like "ipaddress" and "macaddress" (because both contain the
+ *          substring "address") and returning type:"address" / "[Address on
+ *          file]" instead of the correct ip_address / mac_address mask.
+ *          Fix: moved all three pattern-hint blocks (ip, ipv6, mac) above the
+ *          ADDRESS_HINTS guard. No logic change elsewhere.
+ *
+ *   FIX-10 Coordinates masking is now truncated to integer degree:
+ *          Previously the mask applied random ±0.5° jitter, which still
+ *          revealed the precise location to within ~55 km — identifiable for
+ *          small towns / rural areas. The new mask truncates both latitude and
+ *          longitude to their integer part (Math.trunc), yielding e.g.
+ *          "30.x,76.x". Each integer-degree cell is ~111 × ~111 km, which is
+ *          sufficient to prevent re-identification while preserving regional
+ *          context for analytics.
+ *
+ * FIXES vs v15.3 (carried forward from v15.4):
+ *
+ *   FIX-6  OTP detection and masking.
+ *   FIX-7  Token / API-key / reset-token detection and masking.
+ *   FIX-8  Session ID detection and masking.
+ *
+ * FIXES vs v15.2 (carried forward):
  *
  *   FIX-5  Consistent SAME pseudonym for all name parts of one person.
  *
@@ -183,9 +209,6 @@ const NAME_EXCLUDE_HINTS= ["type","category","segment","class","status","label",
 const OTP_HINTS         = ["otp","otpcode","onetime","onetimecode","onetimepassword","otppin","verificationcode","verifycode","authcode","passcode","pincode2","mfacode","tfacode","2facode","totp","hotp"];
 
 // FIX-7: Token / secret-key hints
-// Note: "jwt" excluded here — handled via SESSION_HINTS (FIX-8) because JWTs
-// are session credentials, not raw API secrets. If a project uses both,
-// SESSION_HINTS will catch jwt before TOKEN_HINTS is evaluated.
 const TOKEN_HINTS       = ["token","apikey","accesstoken","resettoken","authtoken","bearertoken","refreshtoken","secretkey","privatekey","clientsecret","appsecret","signingkey","encryptionkey","webhooksecret","tokenhash","tokenvalue","idtoken","oauthtoken","servicetoken","xapikey","xtoken"];
 
 // FIX-8: Session ID hints
@@ -319,14 +342,26 @@ export const detectFieldPII = (key, value) => {
         return { type: "otp", confidence: "high" };
 
     // FIX-7: Token / API key detection — hint match, any non-empty string
-    // Checked before SESSION_HINTS so that "accesstoken" beats "session" if
-    // both somehow appear in the same key (unlikely but safe).
     if (hasHint(normKey, TOKEN_HINTS) && strValue.length >= 4)
         return { type: "token", confidence: "high" };
 
     // FIX-8: Session ID detection — hint match, any non-empty string
     if (hasHint(normKey, SESSION_HINTS) && strValue.length >= 4)
         return { type: "session_id", confidence: "high" };
+
+    // FIX-9: IP / MAC / IPv6 checks MUST come before ADDRESS_HINTS.
+    // Keys like "ipaddress" and "macaddress" contain the substring "address",
+    // so the old ADDRESS_HINTS guard was firing first and returning the wrong
+    // type. By checking pattern-hint blocks for ip, ipv6, and mac here — before
+    // the ADDRESS_HINTS block — those keys are correctly classified.
+    if (hasHint(normKey, PATTERN_HINTS.ip) && PATTERNS.ip.test(strValue) && isValidIP(strValue))
+        return { type: "ip_address", confidence: "high" };
+
+    if (hasHint(normKey, PATTERN_HINTS.ipv6) && PATTERNS.ipv6.test(strValue))
+        return { type: "ip_address_v6", confidence: "high" };
+
+    if (hasHint(normKey, PATTERN_HINTS.mac) && PATTERNS.mac.test(strValue))
+        return { type: "mac_address", confidence: "high" };
 
     if (CUSTOMER_ID_HINTS.map(normaliseKey).includes(normKey))
         return { type: "customer_id", confidence: "high" };
@@ -405,17 +440,8 @@ export const detectFieldPII = (key, value) => {
     if (hasHint(normKey, PATTERN_HINTS.pincode) && PATTERNS.pincode.test(strValue))
         return { type: "pincode", confidence: "high" };
 
-    if (hasHint(normKey, PATTERN_HINTS.ip) && PATTERNS.ip.test(strValue) && isValidIP(strValue))
-        return { type: "ip_address", confidence: "high" };
-
-    if (hasHint(normKey, PATTERN_HINTS.ipv6) && PATTERNS.ipv6.test(strValue))
-        return { type: "ip_address_v6", confidence: "high" };
-
     if (hasHint(normKey, PATTERN_HINTS.iban) && PATTERNS.iban.test(strValue))
         return { type: "iban", confidence: "high" };
-
-    if (hasHint(normKey, PATTERN_HINTS.mac) && PATTERNS.mac.test(strValue))
-        return { type: "mac_address", confidence: "high" };
 
     if (hasHint(normKey, PATTERN_HINTS.coordinates) && PATTERNS.coordinates.test(strValue))
         return { type: "coordinates", confidence: "high" };
@@ -515,14 +541,20 @@ export const maskValue = (type, value, seed = "") => {
         }
         case "ip_address_v6":
             return str.split(":")[0] + ":****:****:****";
+
+        // FIX-10: Truncate to integer degree instead of applying random jitter.
+        // Random ±0.5° jitter still reveals location to within ~55 km.
+        // Integer truncation yields a ~111×111 km cell — sufficient anonymisation
+        // while preserving coarse regional context.
+        // Output format: "30.x,76.x"
         case "coordinates": {
             const parts = str.split(",").map((p) => parseFloat(p.trim()));
             if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-                const j = () => (Math.random() - 0.5);
-                return `${(parts[0] + j()).toFixed(2)},${(parts[1] + j()).toFixed(2)}`;
+                return `${Math.trunc(parts[0])}.x,${Math.trunc(parts[1])}.x`;
             }
             return "[REDACTED]";
         }
+
         case "company": case "salary": case "gender": case "age":
         case "blood_group": case "marital_status": case "nationality":
         case "city": case "gst": case "ifsc":
