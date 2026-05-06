@@ -40,7 +40,7 @@ Presidio runs inside Docker containers for scalable processing.
 
 ---
 
-# 🛠️ Tech Stack
+#  Tech Stack
 
 ## Frontend (`client`)
 - React.js
@@ -137,7 +137,7 @@ docker-compose up
 
 ---
 
-# 🔐 Environment Variables
+#  Environment Variables
 
 ## Client `.env`
 
