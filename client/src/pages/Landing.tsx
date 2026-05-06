@@ -1171,59 +1171,6 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ✅ CHANGE 6: Masking Modes / Configurability Section */}
-        <section id="modes" className="py-16 sm:py-24 border-b border-border/40 bg-card/30">
-          <div className="container max-w-6xl px-4 sm:px-6">
-            <div className="fs-fade-up">
-              <SectionTag>Configurability</SectionTag>
-              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight mb-3 sm:mb-4">Choose your masking mode</h2>
-              <p className="text-base sm:text-lg max-w-xl" style={{ color: "rgba(255,255,255,0.6)" }}>
-                Balance privacy against utility depending on your use case — from maximum protection to analytics-friendly output.
-              </p>
-            </div>
-            <div className="mt-8 sm:mt-10 grid sm:grid-cols-3 gap-4 sm:gap-5 fs-fade-up">
-              {maskingModes.map((m) => {
-                const isActive = activeMaskMode === m.id;
-                return (
-                  <div
-                    key={m.id}
-                    className="mask-mode-card glass rounded-2xl p-5 sm:p-6"
-                    onClick={() => setActiveMaskMode(m.id)}
-                    style={{
-                      borderColor: isActive ? m.border : "rgba(255,255,255,0.1)",
-                      background: isActive ? m.color : "rgba(255,255,255,0.02)",
-                      boxShadow: isActive ? `0 0 24px ${m.border}` : "none",
-                    }}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">{m.emoji}</span>
-                        <span className="font-bold text-base" style={{ color: isActive ? m.textColor : "rgba(255,255,255,0.85)" }}>{m.label}</span>
-                      </div>
-                      {isActive && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ background: `${m.textColor}20`, color: m.textColor, border: `1px solid ${m.textColor}40` }}>
-                          SELECTED
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm leading-relaxed mb-3" style={{ color: "rgba(255,255,255,0.6)" }}>{m.desc}</p>
-                    <span className="text-[11px] font-mono px-2 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.55)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                      {m.utilityBadge}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-            {/* ✅ CHANGE 5: Explainability note */}
-            <div className="mt-5 sm:mt-6 rounded-xl p-4 sm:p-5 fs-fade-up" style={{ background: "rgba(0,255,148,.04)", border: "1px solid rgba(0,255,148,.18)" }}>
-              <p className="text-xs sm:text-sm" style={{ color: "rgba(255,255,255,0.65)" }}>
-                <span className="font-semibold" style={{ color: "#00FF94" }}>🔍 Full explainability:</span>{" "}
-                Every masked field includes its detection reason (rule match / entity classification) and the applied masking strategy — so you can audit exactly what happened and why.
-              </p>
-            </div>
-          </div>
-        </section>
-
         {/* ════ DASHBOARD PREVIEW ════ */}
         <section id="dashboard-preview" className="relative py-16 sm:py-24 border-b border-border/40">
           <div className="absolute inset-0 cyber-grid opacity-25" />
