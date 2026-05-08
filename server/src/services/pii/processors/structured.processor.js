@@ -1,14 +1,3 @@
-/**
- * structured.processor.js
- *
- * Handles the STRUCTURED path: arrays of objects with typed key→value fields.
- *
- * Pipeline:
- *   1. detectPII()        — syntactic regex detection
- *   2. augmentWithNLP()   — NLP layer (optional, fails gracefully)
- *   3. applyOverrides()   — user-defined override rules
- *   4. maskData()         — apply masking per level
- */
 
 import { detectPII }      from "./pii-detector.service.js";
 import { augmentWithNLP } from "./nlp-detector.service.js";

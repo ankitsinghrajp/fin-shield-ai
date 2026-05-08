@@ -1,5 +1,4 @@
 /**
- * utility-calculator.service.js
  *
  * Computes the "utility score" — how much of the original data value is
  * preserved after masking.

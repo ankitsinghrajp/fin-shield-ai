@@ -1,30 +1,3 @@
-/**
- * Data Masking Engine — v9.5
- *
- * FIXES vs v9.4:
- *
- *   FIX-A  otp / token / session_id cases missing from switch:
- *          pii-detector v15.4 emits type strings "otp", "token", "session_id"
- *          but v9.4's switch had none of them → all fell through to
- *          default → [MASKED].
- *
- *          Added three explicit cases:
- *            "otp"        → [OTP REDACTED]
- *            "token"      → tok_****{last4}
- *            "session_id" → SID_{hash4}
- *
- *   FIX-B  Address fallback showed "[Address on file]" instead of the last
- *          recognisable city/locality fragment.
- *          Updated generaliseAddress() to walk comma-split parts right-to-left
- *          and return the first non-empty, non-numeric token it finds, so
- *          "12 MG Road, Bangalore 560001" → "Bangalore" even when the exact
- *          city string isn't in COMMON_CITIES.
- *
- * CARRIES FORWARD from v9.4:
- *
- *   ROOT CAUSE FIX — annotation is an object {type,confidence}; extract .type
- *   before passing to mask(). Without this every field hit default → [MASKED].
- */
 
 import { createPseudonymMap } from "../../utils/pseudonymMap.js";
 
@@ -32,7 +5,6 @@ const LEVELS = ["low", "medium", "high"];
 
 const extractDigits = (str) => String(str).replace(/\D/g, "");
 
-// ─── Tiny stable hash (4 hex chars) ──────────────────────────────────────────
 // Used for session_id pseudonymisation — same raw value → same SID token
 // within a process lifetime (seed is fixed at 0 for simplicity here).
 const shortHash = (str) => {
@@ -47,7 +19,7 @@ const shortHash = (str) => {
     return (Math.abs(h) >>> 0).toString(16).slice(0, 4);
 };
 
-// ─── Address generalisation ───────────────────────────────────────────────────
+// Address generalisation
 const COMMON_CITIES = new Set([
     "bhopal","delhi","mumbai","pune","chennai","kolkata","hyderabad","bangalore",
     "ahmedabad","jaipur","lucknow","indore","kanpur","nagpur","surat","patna",
@@ -62,28 +34,17 @@ const COMMON_CITIES = new Set([
     "singapore","bangkok","beijing","shanghai","moscow","rome","amsterdam",
 ]);
 
-// FIX-B: improved address generalisation.
-//
-// Priority 1 — scan the full string for a known city name (case-insensitive).
-// Priority 2 — walk comma-split parts right-to-left, return the first part
-//              that is non-empty and not purely numeric (strips pin codes etc.).
-//              This surfaces the last meaningful locality token in addresses like
-//              "Flat 4, MG Road, Whitefield, Bangalore 560066" → "Bangalore 560066"
-//              trimmed of digits → "Bangalore".
-// Priority 3 — return the second-to-last comma-split segment (old behaviour).
-// Priority 4 — "[Address on file]" only as absolute last resort (no commas,
-//              no recognisable city, single-token string with no useful fragment).
 const generaliseAddress = (str) => {
     const lower = str.toLowerCase();
 
-    // Priority 1: known city substring match
+    // known city substring match
     for (const city of COMMON_CITIES) {
         if (lower.includes(city)) {
             return city.charAt(0).toUpperCase() + city.slice(1);
         }
     }
 
-    // Priority 2 & 3: comma-split walk
+    //  comma-split walk
     const parts = str.split(/,\s*/);
     if (parts.length > 1) {
         // Walk right-to-left, skip purely numeric / empty segments
@@ -103,7 +64,7 @@ const generaliseAddress = (str) => {
     return "[Address on file]";
 };
 
-// ─── Masker factory ───────────────────────────────────────────────────────────
+// Masker factory
 const createMasker = (pseudonymMap, level = "medium") => {
     const safeLevel = LEVELS.includes(level) ? level : "medium";
 
@@ -119,7 +80,7 @@ const createMasker = (pseudonymMap, level = "medium") => {
 
         switch (type) {
 
-            // ── PSEUDONYMISE ───────────────────────────────────────────────
+            // PSEUDONYMISE
             case "name":
                 return pseudonymMap.getPseudonym(str, "Person");
 
@@ -137,23 +98,16 @@ const createMasker = (pseudonymMap, level = "medium") => {
             case "customer_id":
                 return pseudonymMap.getPseudonym(str, "CID");
 
-            // ── FIX-A: OTP — fully redacted (4–8 digit one-time code) ──────
             case "otp":
                 return "[OTP REDACTED]";
 
-            // ── FIX-A: Token / API key — partial mask, last 4 chars visible ─
-            // Preserves enough context for log correlation without leaking the
-            // secret. Works for any token length ≥ 4.
             case "token":
                 return `tok_****${str.slice(-4)}`;
 
-            // ── FIX-A: Session ID — stable pseudonym ──────────────────────
-            // Same raw session value always maps to the same SID token within
-            // a run, making log traces correlatable without exposing the real ID.
             case "session_id":
                 return `SID_${shortHash(str)}`;
 
-            // ── PARTIAL ────────────────────────────────────────────────────
+            // PARTIAL
             case "creditcard": {
                 const d = extractDigits(str);
                 if (d.length < 12) return "****-****-****-****";
@@ -183,7 +137,7 @@ const createMasker = (pseudonymMap, level = "medium") => {
                     : "**:**:**:**:**:**";
             }
 
-            // ── GENERALISE ─────────────────────────────────────────────────
+            //  GENERALISE 
             case "phone": {
                 const digits = extractDigits(str);
                 if (digits.length < 6) return "XXXXXXXX";
@@ -237,7 +191,7 @@ const createMasker = (pseudonymMap, level = "medium") => {
                 return str;
             }
 
-            // ── REDACT ─────────────────────────────────────────────────────
+            //  REDACT 
             case "aadhaar":
             case "pan":
             case "ssn":
@@ -259,7 +213,7 @@ const createMasker = (pseudonymMap, level = "medium") => {
             case "session_sensitive":
                 return "[REDACTED]";
 
-            // ── KEEP — statistical / non-identifying fields ─────────────────
+            //  KEEP — statistical / non-identifying fields
             case "company":
             case "organisation":
             case "organization":
@@ -293,7 +247,7 @@ const createMasker = (pseudonymMap, level = "medium") => {
     };
 };
 
-// ─── Path helpers ─────────────────────────────────────────────────────────────
+// Path helpers 
 const setNestedValue = (obj, path, value) => {
     const parts = path.replace(/\[(\d+)\]/g, ".$1").split(".");
     let cur = obj;
@@ -314,7 +268,7 @@ const getNestedValue = (obj, path) => {
     return cur;
 };
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+//  Public API 
 export const maskData = (taggedData, level = "medium") => {
     const pseudonymMap = createPseudonymMap();
     const mask = createMasker(pseudonymMap, level);
@@ -325,7 +279,6 @@ export const maskData = (taggedData, level = "medium") => {
 
         for (const [fieldPath, annotation] of Object.entries(__pii)) {
 
-            // ROOT CAUSE FIX (carried from v9.4):
             // pii-detector v15 stores __pii values as objects {type, confidence}.
             // Extract .type before passing to the switch.
             const typeStr = annotation && typeof annotation === "object"

@@ -25,13 +25,7 @@ export const countFields = (obj, d = 0) => {
 
 /**
  * Build a PII-type → count map by comparing original vs masked content lines.
- *
- * Used instead of generateReport() for the unstructured path because
- * generateReport() was designed for structured key→type maps and double-counts
- * when a single masked line contains multiple tokens.
- *
- * Strategy: for each changed line, inspect masking tokens in the output
- * and infer PII category from KV key hints or token shape.
+
  */
 export const buildUnstructuredPIIMap = (origRecords, maskedRecords) => {
     const counts = {};

@@ -41,7 +41,8 @@ export const EXPLANATIONS = {
     address:     "Fully redacted — street address is a direct quasi-identifier.",
 };
 
-/** Regex tokens used to detect what kind of masking was applied to a line */
+// Regex tokens used to detect what kind of masking was applied to a line 
+
 export const REDACT_FULL_RE   = /\[REDACTED\]/g;
 export const REDACT_ADDR_RE   = /\[ADDRESS REDACTED\]/g;
 export const REDACT_MASKED_RE = /\[MASKED\]/g;
@@ -49,5 +50,5 @@ export const PARTIAL_STAR_RE  = /\*{2,}[\d\w-]*/g;
 export const PARTIAL_X_RE     = /[A-Z]{2,}X{3,}[\w]*/g;
 export const PSEUDONYM_RE     = /User_\d{4}/g;
 
-/** Regex used to identify squished / multi-KV blobs coming from DOCX parsing */
+// Regex used to identify squished / multi-KV blobs coming from DOCX parsing 
 export const MULTI_KV_RE = /[A-Za-z][A-Za-z0-9 _.\-]*[ \t]*[=:]/g;

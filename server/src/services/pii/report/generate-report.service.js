@@ -1,17 +1,3 @@
-/**
- * generate-report.service.js — Quality Report Generator v4
- *
- * Generates a structured PII breakdown report from tagged records.
- * Used ONLY by the STRUCTURED data path.
- *
- * NOTE: This function is intentionally NOT used for unstructured / line-based
- * data because it was designed for key→type maps and inflates counts when KV
- * masking fires on multi-token lines.  See FIX-REPORT-2 in pii-engine.service.js.
- *
- * Contract:
- *   generateReport(taggedRecords, totalFields) →
- *     { records, totalFields, piiFields, piiPercent, breakdown }
- */
 
 /**
  * @param {Array}  taggedData   - records with __pii metadata attached

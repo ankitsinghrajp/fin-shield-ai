@@ -1,14 +1,4 @@
-/**
- * presidioService.js
- *
- * Thin Axios wrapper around the Presidio Analyzer container.
- * Returns the raw entity array so callers can use both character
- * offsets (for text masking) and entity_type (for reporting).
- *
- * Shape of each entity:
- *   { entity_type: string, start: number, end: number, score: number }
- */
- 
+
 import axios from "axios";
  
 const PRESIDIO_URL = process.env.PRESIDIO_URL;

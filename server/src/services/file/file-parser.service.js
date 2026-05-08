@@ -6,8 +6,6 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const XLSX = require("xlsx");
 
-// mammoth is a pure-ESM / CJS compatible package for reading .docx files.
-// Install once: npm install mammoth
 let mammoth;
 try {
     mammoth = require("mammoth");
@@ -18,7 +16,7 @@ try {
 const MAX_FILE_SIZE_MB = 50;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-// ─── File type detection ───────────────────────────────────────────────────
+//  File type detection 
 export const getFileType = (fileName) => {
     if (!fileName || typeof fileName !== "string") return "unknown";
     const ext = path.extname(fileName).replace(".", "").toLowerCase();
@@ -26,7 +24,7 @@ export const getFileType = (fileName) => {
     return SUPPORTED.includes(ext) ? ext : "unknown";
 };
 
-// ─── Guard: size check ────────────────────────────────────────────────────
+// Guard: size check 
 const checkFileSize = (filePath) => {
     const stats = fs.statSync(filePath);
     if (stats.size === 0) throw new Error("Uploaded file is empty.");
@@ -35,7 +33,7 @@ const checkFileSize = (filePath) => {
     }
 };
 
-// ─── JSON parser ──────────────────────────────────────────────────────────
+//  JSON parser
 const parseJSON = (filePath) => {
     const raw = fs.readFileSync(filePath, "utf-8").trim();
     if (!raw) throw new Error("JSON file is empty.");
@@ -50,7 +48,7 @@ const parseJSON = (filePath) => {
     return [{ content: String(parsed) }];
 };
 
-// ─── CSV parser ───────────────────────────────────────────────────────────
+// CSV parser
 const parseCSV = (filePath) => {
     return new Promise((resolve, reject) => {
         const results = [];
@@ -74,21 +72,10 @@ const parseCSV = (filePath) => {
     });
 };
 
-// ─── TXT / LOG parser ─────────────────────────────────────────────────────
-/**
- * Converts a plain-text / log file into the {line, content} shape that
- * the PII engine's isUnstructured() check expects.
- *
- * Rules:
- *   1. If the file looks like JSON, delegate to parseJSON.
- *   2. Otherwise split on newlines, trim each line, drop blank lines.
- *   3. Every non-blank line becomes { line: N, content: "..." }.
- */
 const parseTXTorLOG = (filePath) => {
     const text = fs.readFileSync(filePath, "utf-8").trim();
     if (!text) throw new Error("File is empty.");
 
-    // Delegate JSON-embedded content
     const firstChar = text[0];
     if (firstChar === "{" || firstChar === "[") {
         try { return parseJSON(filePath); } catch (_) { /* fall through */ }
@@ -109,7 +96,7 @@ const parseTXTorLOG = (filePath) => {
     return records;
 };
 
-// ─── XLSX parser ──────────────────────────────────────────────────────────
+//  XLSX parser
 const parseXLSX = (filePath) => {
     try {
         const workbook = XLSX.readFile(filePath);
@@ -125,40 +112,7 @@ const parseXLSX = (filePath) => {
     }
 };
 
-// ─── DOCX parser ──────────────────────────────────────────────────────────
-/**
- * Reads a .docx file and converts it to the same {line, content} shape
- * as parseTXTorLOG so the unstructured PII pipeline handles it identically.
- *
- * ROOT CAUSE FIX (v2.1):
- *   mammoth.extractRawText() can produce "squished" output where multiple
- *   KV pairs are concatenated on one line without separators, e.g.:
- *
- *     "Name: AnkitEmail: ankit@example.com"
- *     "SECTION 1] USER LOGSUserID=USR_78231"
- *
- *   Previously this was returned as ONE record with content = the whole blob.
- *   The PII engine then saw 1 record with 1 field → totalFields=1, but could
- *   detect many PII entities → piiPercent > 100% (mathematically impossible).
- *   KV masking also failed because applyKeyValueMasking() only handles one
- *   KV pair per line.
- *
- *   Fix (three steps):
- *     1. normalizeSquishedText() (from presidioMapper v8.1) inserts \n before
- *        every known field label, SECTION header, and log timestamp — turning
- *        squished blobs into properly separated lines.
- *     2. fixBrokenCamelTransitions() handles mammoth joining paragraphs without
- *        spaces (e.g. "SECTION 1]UserID=" → "SECTION 1]\nUserID=").
- *     3. Split on \n, trim, filter blanks → one {line, content} record per line.
- *
- *   Result: each KV pair gets its own record. totalFields and piiFields are
- *   now mathematically consistent (piiPercent ≤ 100% is possible).
- */
-
-/**
- * Known field labels — must stay in sync with presidioMapper.KNOWN_FIELD_LABELS.
- * Listed longest-first so multi-word labels are matched before sub-words.
- */
+// Docx parser
 const KNOWN_FIELD_LABELS_DOCX = [
     // Multi-word (longest first)
     "Card Holder Name", "Card Number", "Account Number", "IP Address", "IFSC Code",
@@ -180,11 +134,7 @@ const LABEL_SPLIT_RE_DOCX = new RegExp(
     "g"
 );
 
-/**
- * Inline squish-normaliser (mirrors presidioMapper.normalizeSquishedText).
- * We duplicate it here so fileParser.js has no import dependency on the
- * business-logic layer — keeping the two layers properly separated.
- */
+
 const normalizeSquishedDocxText = (text) => {
     // 1. Insert \n before known field labels that are not already line-initial.
     let out = text.replace(LABEL_SPLIT_RE_DOCX, "\n$1");
@@ -228,10 +178,10 @@ const parseDOCX = async (filePath) => {
         throw new Error("DOCX file contains no readable text.");
     }
 
-    // ── FIX: normalise squished paragraphs before splitting ──────────────────
+    // normalise squished paragraphs before splitting 
     const normalizedText = normalizeSquishedDocxText(rawText);
 
-    // ── Split into individual lines → one record per line ────────────────────
+    // Split into individual lines → one record per line 
     const lines = normalizedText.split(/\r?\n/);
     const records = [];
     let lineNum = 0;
@@ -252,7 +202,7 @@ const parseDOCX = async (filePath) => {
     return records;
 };
 
-// ─── Main dispatcher ──────────────────────────────────────────────────────
+// Main dispatcher
 export const parseFile = async (filePath, fileName) => {
     if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
     checkFileSize(filePath);

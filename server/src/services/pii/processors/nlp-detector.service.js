@@ -1,19 +1,6 @@
-/**
- * NLP-enhanced PII detection using "compromise".
- * Runs on every string field and extracts:
- *   People        → maps to "name"
- *   Places        → maps to "city"
- *   Organizations → maps to "company"
- *
- * Complements the existing syntactic (regex/field‑name) detector.
- * Only adds fields that were not already flagged.
- */
 
 import nlp from 'compromise';
 
-// ---------------------------------------------------------------------------
-// Analyse a single string, returning the first PII type found (if any)
-// ---------------------------------------------------------------------------
 const detectTypeFromText = (text) => {
   const doc = nlp(text);
 
@@ -32,9 +19,8 @@ const detectTypeFromText = (text) => {
   return null;
 };
 
-// ---------------------------------------------------------------------------
 // Walk an object recursively, detect PII in every string leaf
-// ---------------------------------------------------------------------------
+
 const detectInObject = (obj, path = '') => {
   const findings = {};
   if (obj === null || typeof obj !== 'object') return findings;
@@ -55,10 +41,9 @@ const detectInObject = (obj, path = '') => {
   return findings;
 };
 
-// ---------------------------------------------------------------------------
 // Augment existing detection results with NLP findings.
 // existingPii always wins – we only add fields that were not already tagged.
-// ---------------------------------------------------------------------------
+
 export const augmentWithNLP = async (originalData, taggedData) => {
   const augTagged = [];
 

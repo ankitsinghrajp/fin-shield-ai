@@ -1,74 +1,3 @@
-/**
- * PII Detection Engine — v15.6
- *
- * FIXES vs v15.5:
- *
- *   FIX-11 12-digit card numbers (Maestro / Laser / some RuPay) leaked in full.
- *          Root cause — two independent failures that compounded:
- *
- *          (a) REGEX GAP: the old pattern's first branch was
- *              \d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{1,4}  (13–16 digits)
- *              and the second branch covered only Amex 15-digit (4-6-5).
- *              A plain 12-digit string like "503825411245" matched neither
- *              branch, so PATTERNS.creditcard.test() returned false.
- *              Fix: replaced with a single generalised branch that accepts
- *              any digit-and-optional-separator sequence totalling 12–19
- *              digits, validated by the digit-count guard below.
- *
- *          (b) KEY-HINT FALLBACK ABSENT: when the value pattern fails, there
- *              was no safety net. Any field whose key clearly signals a card
- *              (contains "credit", "debit", "card", "cc", etc.) should be
- *              masked unconditionally — the issuer may use a non-standard
- *              length and the key name is the authoritative signal.
- *              Fix: added a key-hint-only guard that fires first, before the
- *              combined hint+pattern test. If the key hints at a card number
- *              AND the digit count is 12–19, we mask regardless of formatting.
- *
- * FIXES vs v15.4 (carried forward from v15.5):
- *
- *   FIX-9  IP / MAC address detection ordering:
- *          ip, ipv6, and mac checks are now evaluated BEFORE the address
- *          check. Previously, hasHint(normKey, ADDRESS_HINTS) was matching
- *          keys like "ipaddress" and "macaddress" (because both contain the
- *          substring "address") and returning type:"address" / "[Address on
- *          file]" instead of the correct ip_address / mac_address mask.
- *          Fix: moved all three pattern-hint blocks (ip, ipv6, mac) above the
- *          ADDRESS_HINTS guard. No logic change elsewhere.
- *
- *   FIX-10 Coordinates masking is now truncated to integer degree:
- *          Previously the mask applied random ±0.5° jitter, which still
- *          revealed the precise location to within ~55 km — identifiable for
- *          small towns / rural areas. The new mask truncates both latitude and
- *          longitude to their integer part (Math.trunc), yielding e.g.
- *          "30.x,76.x". Each integer-degree cell is ~111 × ~111 km, which is
- *          sufficient to prevent re-identification while preserving regional
- *          context for analytics.
- *
- * FIXES vs v15.3 (carried forward from v15.4):
- *
- *   FIX-6  OTP detection and masking.
- *   FIX-7  Token / API-key / reset-token detection and masking.
- *   FIX-8  Session ID detection and masking.
- *
- * FIXES vs v15.2 (carried forward):
- *
- *   FIX-5  Consistent SAME pseudonym for all name parts of one person.
- *
- * FIXES vs v15.1 (carried forward):
- *
- *   FIX-4  Path-scoped seed for non-name fields.
- *
- * FIXES vs v15.0 (carried forward from v15.1):
- *
- *   FIX-1  Aadhaar pattern relaxed: [2-9]\d{3} → \d{4}
- *   FIX-2  CreditCard pattern extended to cover Amex (4-6-5 format)
- *   FIX-3  CreditCard Luhn check made ADVISORY not BLOCKING when field key
- *          is an explicit creditcard hint
- */
-
-// =============================================================================
-// SECTION 1 — UTILITY HELPERS
-// =============================================================================
 
 const extractDigits = (v) => String(v).replace(/\D/g, "");
 const normaliseKey  = (key) => String(key).toLowerCase().replace(/[_\s\-.]/g, "");
@@ -86,9 +15,7 @@ const shortHash = (str, seed = 0) => {
     return (Math.abs(h) >>> 0).toString(16).slice(0, 4);
 };
 
-// =============================================================================
-// SECTION 2 — VALIDATION HELPERS
-// =============================================================================
+// VALIDATION 
 
 const luhnCheck = (value) => {
     const digits = extractDigits(value);
@@ -147,16 +74,14 @@ const isValidEmail = (value) => {
 
 // FIX-6: OTP value must be 4–8 digits only (no separators)
 // This prevents matching arbitrary numeric strings like product codes.
+
 const isValidOTP = (value) => /^\d{4,8}$/.test(String(value).trim());
 
-// =============================================================================
-// SECTION 3 — PATTERNS
-// =============================================================================
+// PATTERNS
 
 const EMAIL_PATTERN = /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i;
 
 const PATTERNS = {
-    // FIX-1: relaxed from [2-9]\d{3} to \d{4} — field key is the real guard
     aadhaar: /^\d{4}[\s\-]?\d{4}[\s\-]?\d{4}$/,
 
     pan:           /^[A-Z]{5}[0-9]{4}[A-Z]$/,
@@ -168,8 +93,6 @@ const PATTERNS = {
     pincode:       /^[1-9]\d{5}$/,
     ifsc:          /^[A-Z]{4}0[A-Z0-9]{6}$/,
     ip:            /^(\d{1,3}\.){3}\d{1,3}$/,
-
-    // FIX-2: extended pattern covers Standard 16-digit, Amex 15-digit, RuPay/Maestro 13-19
     creditcard: /^(\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{1,4}|\d{4}[\s\-]?\d{6}[\s\-]?\d{5})$/,
 
     ssn:           /^\d{3}[\-\s]\d{2}[\-\s]\d{4}$/,
@@ -180,9 +103,7 @@ const PATTERNS = {
     cvv:           /^\d{3,4}$/,
 };
 
-// =============================================================================
-// SECTION 4 — HINTS
-// =============================================================================
+// HINTS
 
 const NAME_HINTS        = ["name","fullname","firstname","lastname","first","last","surname","customer","user","client","recipient","sender","owner","holder","member","patient","employee","employer","vendor","supplier","buyer","seller","borrower","guardian","nominee"];
 const EMAIL_HINTS       = ["email","mail","emailid","emailaddress"];
@@ -204,21 +125,13 @@ const BLOOD_HINTS       = ["bloodgroup","bloodtype","bloodgrp"];
 const CVV_HINTS         = ["cvv","cvc","cvv2","cvc2","cardverification","securitycode","cardcode","cvn","cardverificationvalue","cardverificationnumber","cid"];
 const GOV_ID_HINTS      = ["govid","governmentid","nationalid","natid","govtid","nid","nationalidentity"];
 const NAME_EXCLUDE_HINTS= ["type","category","segment","class","status","label","tag","code","ref","sku","mode","kind"];
-
-// FIX-6: OTP hints — key must clearly signal a one-time password / code
 const OTP_HINTS         = ["otp","otpcode","onetime","onetimecode","onetimepassword","otppin","verificationcode","verifycode","authcode","passcode","pincode2","mfacode","tfacode","2facode","totp","hotp"];
-
-// FIX-7: Token / secret-key hints
 const TOKEN_HINTS       = ["token","apikey","accesstoken","resettoken","authtoken","bearertoken","refreshtoken","secretkey","privatekey","clientsecret","appsecret","signingkey","encryptionkey","webhooksecret","tokenhash","tokenvalue","idtoken","oauthtoken","servicetoken","xapikey","xtoken"];
-
-// FIX-8: Session ID hints
 const SESSION_HINTS     = ["sessionid","sid","session","sessid","cookieid","jwttoken","jwt","requestsessionid","usersessionid","browsersessionid","websessionid","appsessionid","tabsessionid"];
 
 const PATTERN_HINTS = {
-    // FIX-1: aadhaar hints are the primary guard — value pattern is secondary
     aadhaar:       ["aadhaar","aadhar","uid","uidai"],
     pan:           ["pan","pancard","pannumber"],
-    // FIX-3: expanded creditcard hints so key-name alone triggers detection
     creditcard:    ["creditcard","debitcard","credit","debit","ccnum","cardnumber","cardno","cc","card"],
     ssn:           ["ssn","socialsecurity","socialsecuritynumber","socialsec"],
     passport:      ["passport","passportno","passportnumber"],
@@ -236,9 +149,7 @@ const PATTERN_HINTS = {
     email:         ["email","mail","emailid"],
 };
 
-// =============================================================================
-// SECTION 5 — SAFE / NON-PII FIELD SETS
-// =============================================================================
+// SAFE / NON-PII FIELD SETS
 
 export const NON_PII_FIELDS = new Set([
     "orderref","txnid","transactionid","invoiceno","index","website","country",
@@ -248,8 +159,6 @@ export const NON_PII_FIELDS = new Set([
     "caseid","workorderid","requestid","applicationid","formid","documentid",
     "paymentid","invoiceid","quotationno","ponum","pono","grn","workflowid",
     "jobid","taskid","queueid","messageid",
-    // NOTE: "sessionid" intentionally REMOVED (was here in v15.3) so that
-    // FIX-8 SESSION_HINTS detection can fire. (FIX-8)
     "correlationid",
     "errorcode","statuscode","responsecode","resultcode","httpstatus",
     "pageno","pagenumber","rowcount","totalcount","pagesize","offset","limit",
@@ -292,9 +201,7 @@ const COMMON_CITIES = new Set([
     "singapore","bangkok","beijing","shanghai","moscow","rome","amsterdam",
 ]);
 
-// =============================================================================
-// SECTION 6 — DETECTION ENGINE
-// =============================================================================
+//  DETECTION ENGINE
 
 export const detectFieldPII = (key, value) => {
     if (value === null || value === undefined) return null;
@@ -337,23 +244,18 @@ export const detectFieldPII = (key, value) => {
             return { type: "age", confidence: "high" };
     }
 
-    // FIX-6: OTP detection — hint match + 4-8 digit value
+    // OTP detection — hint match + 4-8 digit value
     if (hasHint(normKey, OTP_HINTS) && isValidOTP(strValue))
         return { type: "otp", confidence: "high" };
 
-    // FIX-7: Token / API key detection — hint match, any non-empty string
+    // Token / API key detection — hint match, any non-empty string
     if (hasHint(normKey, TOKEN_HINTS) && strValue.length >= 4)
         return { type: "token", confidence: "high" };
 
-    // FIX-8: Session ID detection — hint match, any non-empty string
+    // Session ID detection — hint match, any non-empty string
     if (hasHint(normKey, SESSION_HINTS) && strValue.length >= 4)
         return { type: "session_id", confidence: "high" };
 
-    // FIX-9: IP / MAC / IPv6 checks MUST come before ADDRESS_HINTS.
-    // Keys like "ipaddress" and "macaddress" contain the substring "address",
-    // so the old ADDRESS_HINTS guard was firing first and returning the wrong
-    // type. By checking pattern-hint blocks for ip, ipv6, and mac here — before
-    // the ADDRESS_HINTS block — those keys are correctly classified.
     if (hasHint(normKey, PATTERN_HINTS.ip) && PATTERNS.ip.test(strValue) && isValidIP(strValue))
         return { type: "ip_address", confidence: "high" };
 
@@ -402,14 +304,12 @@ export const detectFieldPII = (key, value) => {
 
     if (/^(true|false|yes|no|null|na|n\/a|none|unknown)$/i.test(strValue)) return null;
 
-    // FIX-1: Aadhaar — hint match + 12-digit structure (value pattern relaxed)
     if (hasHint(normKey, PATTERN_HINTS.aadhaar) && PATTERNS.aadhaar.test(strValue))
         return { type: "aadhaar", confidence: "high" };
 
     if (hasHint(normKey, PATTERN_HINTS.pan) && PATTERNS.pan.test(strValue))
         return { type: "pan", confidence: "high" };
 
-    // FIX-2 + FIX-3: CreditCard detection
     if (hasHint(normKey, PATTERN_HINTS.creditcard) && PATTERNS.creditcard.test(strValue)) {
         const digits = extractDigits(strValue);
         if (digits.length >= 13 && digits.length <= 19)
@@ -449,14 +349,12 @@ export const detectFieldPII = (key, value) => {
     return null;
 };
 
-// =============================================================================
-// SECTION 7 — MASKING STRATEGIES
-// =============================================================================
+// MASKING STRATEGIES
 
 export const maskValue = (type, value, seed = "") => {
     const str = String(value).trim();
 
-    // FIX-5: when the seed carries a record-identity marker (set by maskPII
+    // when the seed carries a record-identity marker (set by maskPII
     // for name-type fields), hash the seed ALONE — not str+seed.
     const IDENTITY_MARKER = "__person__:";
     const h = (type === "name" && seed.startsWith(IDENTITY_MARKER))
@@ -469,18 +367,18 @@ export const maskValue = (type, value, seed = "") => {
         case "biometric": case "religion_caste": case "cvv":
             return "[REDACTED]";
 
-        // FIX-6: OTP → always fully redacted, no partial masking
+        // OTP → always fully redacted, no partial masking
         case "otp":
             return "[OTP REDACTED]";
 
-        // FIX-7: Token → tok_****{last4} preserves log-correlation ability
+        // Token → tok_****{last4} preserves log-correlation ability
         // while hiding the secret. Works for any token length ≥ 4.
         case "token": {
             const last4 = str.slice(-4);
             return `tok_****${last4}`;
         }
 
-        // FIX-8: Session ID → stable SID_{hash} pseudonym
+        // Session ID → stable SID_{hash} pseudonym
         // Same raw session value always maps to the same SID token within a run.
         case "session_id":
             return `SID_${h}`;
@@ -542,11 +440,6 @@ export const maskValue = (type, value, seed = "") => {
         case "ip_address_v6":
             return str.split(":")[0] + ":****:****:****";
 
-        // FIX-10: Truncate to integer degree instead of applying random jitter.
-        // Random ±0.5° jitter still reveals location to within ~55 km.
-        // Integer truncation yields a ~111×111 km cell — sufficient anonymisation
-        // while preserving coarse regional context.
-        // Output format: "30.x,76.x"
         case "coordinates": {
             const parts = str.split(",").map((p) => parseFloat(p.trim()));
             if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
@@ -564,9 +457,7 @@ export const maskValue = (type, value, seed = "") => {
     }
 };
 
-// =============================================================================
-// SECTION 8 — RECURSIVE TRAVERSAL
-// =============================================================================
+//  RECURSIVE TRAVERSAL
 
 const flatDetect = (obj, detected, prefix) => {
     if (obj === null || typeof obj !== "object") return;
@@ -595,9 +486,7 @@ const setByPath = (obj, path, val) => {
     cur[keys[keys.length - 1]] = val;
 };
 
-// =============================================================================
 // SECTION 9 — PUBLIC API
-// =============================================================================
 
 export const detectPII = (data) => {
     if (!Array.isArray(data)) {
@@ -625,7 +514,7 @@ export const maskPII = (data, options = {}) => {
             return annotate ? { ...rest, __pii } : rest;
         const masked = JSON.parse(JSON.stringify(rest));
 
-        // FIX-5: build a stable per-record identity seed for ALL name-type fields
+        // build a stable per-record identity seed for ALL name-type fields
         const rawNameValues = Object.entries(__pii)
             .filter(([path, { type }]) => {
                 if (type !== "name") return false;
@@ -674,7 +563,6 @@ export const hasHighConfidencePII = (annotatedRecords) =>
 export const MASKING_STRATEGY = {
     name:"PSEUDONYMISE", email:"PSEUDONYMISE", upi:"PSEUDONYMISE",
     customer_id:"TOKENISE",
-    // FIX-6,7,8: new types and their strategies
     otp:"REDACT", token:"PARTIAL", session_id:"PSEUDONYMISE",
     creditcard:"PARTIAL", account:"PARTIAL", iban:"PARTIAL", mac_address:"PARTIAL",
     phone:"GENERALISE", date:"GENERALISE", address:"GENERALISE", pincode:"GENERALISE",

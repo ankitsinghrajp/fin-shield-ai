@@ -1,10 +1,3 @@
-/**
- * report-builder.service.js
- *
- * Assembles the final `report` object returned by detectAndMaskPII().
- * All heavy computation (utility, risk, breakdown) is delegated to the
- * specialised calculator modules.
- */
 
 import { getCategorizedBreakdown, getExplanations, detectInputType, getUtilityNote } from "../helpers/pii-helpers.js";
 import { countFields, buildUnstructuredPIIMap }                                       from "../helpers/pii-utils.js";
@@ -34,10 +27,7 @@ export const buildReport = ({ normalised, maskedResult, tagged, unstructured, le
     let piiPercent;
 
     if (unstructured) {
-        // FIX-REPORT-1: use record count, not recursive key count
         totalFields = normalised.length;
-
-        // FIX-REPORT-2: derive PII counts from masking deltas, not generateReport()
         piiTypeMap = buildUnstructuredPIIMap(normalised, maskedResult);
 
         utilityPercent = computeUnstructuredUtilityPercent(normalised, maskedResult);
@@ -89,9 +79,9 @@ export const buildReport = ({ normalised, maskedResult, tagged, unstructured, le
     };
 };
 
-/**
- * Return an empty report used when the input array is empty.
- */
+
+  // Return an empty report used when the input array is empty.
+
 export const buildEmptyReport = (level) => ({
     records:       0,
     totalFields:   0,
