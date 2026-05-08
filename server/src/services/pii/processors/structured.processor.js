@@ -12,7 +12,7 @@ import { applyOverrides } from "../../../utils/override.js";
  * @returns {Promise<{ tagged: Array, maskedResult: Array }>}
  */
 export const processStructured = async (normalised, level) => {
-    console.log(`[structured.processor v4.7] ${normalised.length} records → syntactic engine`);
+    console.log(`[structured.processor] ${normalised.length} records → syntactic engine`);
 
     // Step 1: syntactic PII detection
     let tagged = detectPII(normalised);
